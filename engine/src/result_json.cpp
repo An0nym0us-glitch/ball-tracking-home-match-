@@ -53,6 +53,11 @@ json deliveryToJson(const DeliveryResult& r, const AnalysisConfig& cfg, bool inc
     lbw["p_impact_in_line"] =
         std::round((1.0 - r.lbw_input.p_impact_outside_leg - r.lbw_input.p_impact_outside_off) * 1000) / 1000;
     lbw["p_pitched_outside_leg"] = std::round(r.lbw_input.p_pitch_outside_leg * 1000) / 1000;
+    lbw["p_pitched_outside_off"] = std::round(r.lbw_input.p_pitch_outside_off * 1000) / 1000;
+    lbw["p_impact_outside_leg"] = std::round(r.lbw_input.p_impact_outside_leg * 1000) / 1000;
+    lbw["p_impact_outside_off"] = std::round(r.lbw_input.p_impact_outside_off * 1000) / 1000;
+    lbw["full_toss"] = r.lbw_input.full_toss;
+    lbw["sure"] = r.lbw_input.sure;
     lbw["no_shot_offered"] = r.lbw_input.no_shot_offered;
     lbw["projection_m"] = std::isfinite(r.projection_m) ? json(std::round(r.projection_m * 100) / 100) : json(nullptr);
   }

@@ -1,4 +1,4 @@
-#include "overlay.hpp"
+#include "pocketeye/overlay.hpp"
 
 #include <cmath>
 #include <opencv2/imgproc.hpp>

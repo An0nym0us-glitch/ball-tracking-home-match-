@@ -1,26 +1,18 @@
 // pocketeye-cli: video + session config in, delivery JSON (trajectory, metrics, LBW) out.
-#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <map>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/videoio.hpp>
 #include <string>
 #include <vector>
 
-#include "overlay.hpp"
 #include "pocketeye/config.hpp"
 #include "pocketeye/engine.hpp"
 #include "pocketeye/result_json.hpp"
+#include "pocketeye/video.hpp"
 
 namespace {
 
 using nlohmann::json;
-using Clock = std::chrono::steady_clock;
-
-double msSince(Clock::time_point t0) {
-  return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
-}
 
 void usage() {
   std::cerr <<
@@ -38,6 +30,7 @@ void usage() {
       --gray                   detect on brightness only (like a luma-only stream)
       --tracks-only            debugging: list raw tracks without analysing them
       --dump-candidates f.json debugging: per-frame ball candidates
+  pocketeye-cli benchmark [--width 1280 --height 720 --frames 240]
   pocketeye-cli version
 )";
 }
@@ -92,103 +85,36 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
   cfg.engine.skip_analysis = args.count("tracks-only") > 0;
   for (const auto& w : cfg.calibration.warnings) std::cerr << "calibration warning: " << w << "\n";
 
-  const std::string video = args.at("video");
-  cv::VideoCapture cap;
-  cap.open(video, cv::CAP_FFMPEG, {cv::CAP_PROP_HW_ACCELERATION, cv::VIDEO_ACCELERATION_ANY});
-  if (!cap.isOpened()) cap.open(video);
-  if (!cap.isOpened()) throw std::runtime_error("cannot open video " + video);
-  const double file_fps = cap.get(cv::CAP_PROP_FPS);
-
-  std::vector<double> given_ts;
+  pe::VideoAnalysisOptions opt;
+  opt.video_path = args.at("video");
   if (args.count("timestamps")) {
     std::ifstream f(args.at("timestamps"));
     if (!f) throw std::runtime_error("cannot open " + args.at("timestamps"));
-    for (double t; f >> t;) given_ts.push_back(t);
+    for (double t; f >> t;) opt.timestamps.push_back(t);
   }
-  const double fps_override = args.count("fps") ? std::stod(args.at("fps")) : 0.0;
-
-  pe::Engine engine(cfg.engine);
+  if (args.count("fps")) opt.fps_override = std::stod(args.at("fps"));
+  if (args.count("overlay")) opt.overlay_path = args.at("overlay");
+  opt.gray = args.count("gray") > 0;
   json cand_dump = json::array();
-  const bool dump_cands = args.count("dump-candidates") > 0;
-  std::vector<pe::DeliveryResult> results;
-  std::vector<double> timestamps;
-  cv::Mat frame, gray;
-  double decode_ms = 0, convert_ms = 0, engine_ms = 0;
-  const auto t_all = Clock::now();
-  for (int i = 0;; ++i) {
-    auto t0 = Clock::now();
-    if (!cap.read(frame)) break;
-    decode_ms += msSince(t0);
-    double t;
-    if (i < static_cast<int>(given_ts.size())) {
-      t = given_ts[i];
-    } else if (fps_override > 0) {
-      t = i / fps_override;
-    } else {
-      t = cap.get(cv::CAP_PROP_POS_MSEC) / 1000.0;
-      if (i > 0 && t <= timestamps.back()) t = i / (file_fps > 0 ? file_fps : 30.0);
-    }
-    timestamps.push_back(t);
-    if (frame.cols != cfg.engine.analysis.camera.width || frame.rows != cfg.engine.analysis.camera.height) {
-      throw std::runtime_error("video is " + std::to_string(frame.cols) + "x" + std::to_string(frame.rows) +
-                               " but the calibration is for " +
-                               std::to_string(cfg.engine.analysis.camera.width) + "x" +
-                               std::to_string(cfg.engine.analysis.camera.height));
-    }
-    t0 = Clock::now();
-    if (frame.channels() == 4) {
-      cv::cvtColor(frame, gray, cv::COLOR_BGRA2BGR);
-    } else {
-      gray = frame;
-    }
-    convert_ms += msSince(t0);
-    t0 = Clock::now();
-    engine.pushFrame(args.count("gray") ? (frame.channels() == 1 ? frame : (cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY), gray)) : gray, t);
-    engine_ms += msSince(t0);
-    if (dump_cands && i >= 2) {
+  if (args.count("dump-candidates")) {
+    opt.on_frame = [&cand_dump](int i, double, const pe::Engine& engine) {
+      if (i < 2) return;
       json c = json::array();
       for (const auto& cd : engine.lastCandidates()) {
         c.push_back({cd.uv.x(), cd.uv.y(), cd.radius_px, cd.area, cd.elongation, cd.strength});
       }
-      cand_dump.push_back({{"frame", i - 1}, {"t", timestamps[i - 1]}, {"c", c}});
-    }
-    for (pe::DeliveryResult r; engine.popResult(r);) results.push_back(std::move(r));
+      cand_dump.push_back({{"frame", i - 1}, {"c", c}});
+    };
   }
-  auto t0 = Clock::now();
-  engine.finish();
-  engine_ms += msSince(t0);
-  for (pe::DeliveryResult r; engine.popResult(r);) results.push_back(std::move(r));
-  const double total_ms = msSince(t_all);
-
-  json out;
-  out["version"] = "pocketeye 0.1.0";
-  out["video"] = {{"path", video}, {"frames", timestamps.size()}, {"fps_reported", file_fps}};
-  out["calibration"] = pe::calibrationToJson(cfg.calibration);
-  out["ball"] = cfg.engine.analysis.ball.name;
-  out["batter"] = cfg.engine.analysis.batter == pe::Hand::Right ? "right" : "left";
-  json dl = json::array();
-  for (const auto& r : results) dl.push_back(pe::deliveryToJson(r, cfg.engine.analysis));
-  out["deliveries"] = dl;
-  const auto& st = engine.stats();
-  const double n = std::max<size_t>(1, timestamps.size());
-  out["timings_ms"] = {{"decode_total", decode_ms},
-                       {"decode_per_frame", decode_ms / n},
-                       {"convert_total", convert_ms},
-                       {"detect_total", st.detect_ms},
-                       {"detect_per_frame", st.detect_ms / n},
-                       {"track_total", st.track_ms},
-                       {"analyze_total", st.analyze_ms},
-                       {"engine_total", engine_ms},
-                       {"wall_total", total_ms}};
-  out["tracks_analyzed"] = st.tracks_analyzed;
-
-  if (args.count("overlay")) {
-    std::string err;
-    if (!pe::writeOverlayVideo(video, timestamps, results, cfg.engine.analysis, args.at("overlay"), &err)) {
-      std::cerr << "overlay: " << err << "\n";
+  json out = pe::analyzeVideoFile(cfg, opt);
+  if (out.contains("overlay_error")) std::cerr << "overlay: " << out["overlay_error"] << "\n";
+  if (args.count("dump-candidates")) {
+    // Candidates belong to the frame before the one just pushed: add its time.
+    std::vector<double> ts = opt.timestamps;
+    for (auto& c : cand_dump) {
+      const int fr = c["frame"].get<int>();
+      c["t"] = fr < static_cast<int>(ts.size()) ? ts[fr] : 0.0;
     }
-  }
-  if (dump_cands) {
     std::ofstream f(args.at("dump-candidates"));
     f << cand_dump.dump() << "\n";
   }
@@ -212,6 +138,13 @@ int main(int argc, char** argv) {
     const auto args = parseArgs(argc, argv, 2);
     if (cmd == "calibrate") return cmdCalibrate(args);
     if (cmd == "analyze") return cmdAnalyze(args);
+    if (cmd == "benchmark") {
+      const int w = args.count("width") ? std::stoi(args.at("width")) : 1280;
+      const int h = args.count("height") ? std::stoi(args.at("height")) : 720;
+      const int n = args.count("frames") ? std::stoi(args.at("frames")) : 240;
+      std::cout << pe::runBenchmark(w, h, n).dump(2) << "\n";
+      return 0;
+    }
   } catch (const std::out_of_range&) {
     usage();
     return 2;

@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.pocketeye.camera'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.pocketeye.camera'
+        // Android 5.0: the 2016-2017 budget phones (e.g. Samsung SM-G531F, 5.1.1).
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Debug key so the APK installs directly; use your own key to publish.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    // QR decoding only; 3.3.x still targets Java 7 / old Android.
+    implementation 'com.google.zxing:core:3.3.3'
+}

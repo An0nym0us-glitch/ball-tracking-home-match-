@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 /out/
 /synth_out/
+third_party/
+app/build/
+camera_lite/build/
+camera_lite/app/build/
+camera_lite/.gradle/
+camera_lite/local.properties

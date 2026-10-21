@@ -1,0 +1,121 @@
+name: apps
+
+# Builds the downloadable apps:
+#   PocketEye-windows       Windows laptop app (zip with PocketEye.exe) + command-line tool
+#   PocketEye-android       Phone app (phone-only mode), Android 7+, one APK per CPU type
+#   PocketEyeCamera-android Camera app for old phones (Android 5+), streams to the laptop
+on:
+  push:
+    paths: ["app/**", "engine/**", "camera_lite/**", ".github/workflows/apps.yml"]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: "3.47.7"
+  OPENCV_VERSION: "4.10.0"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get OpenCV for Windows
+        shell: pwsh
+        run: |
+          curl.exe -sSL -o opencv.exe "https://github.com/opencv/opencv/releases/download/$env:OPENCV_VERSION/opencv-$env:OPENCV_VERSION-windows.exe"
+          7z x opencv.exe -oC:\ -y | Out-Null
+          Get-ChildItem C:\opencv\build\x64\vc16\bin
+
+      - name: Build engine (DLL + command-line tool)
+        run: |
+          cmake -S engine -B engine/build-win -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR=C:/opencv/build -DPE_BUILD_TESTS=OFF
+          cmake --build engine/build-win --config Release --parallel
+
+      - name: Collect native libraries
+        shell: pwsh
+        run: |
+          $ver = $env:OPENCV_VERSION -replace '\.', ''
+          New-Item -ItemType Directory -Force native, cli | Out-Null
+          $runtime = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") | ForEach-Object { "C:\Windows\System32\$_" }
+          $ocv = @("C:\opencv\build\x64\vc16\bin\opencv_world$ver.dll", "C:\opencv\build\x64\vc16\bin\opencv_videoio_ffmpeg${ver}_64.dll")
+          Copy-Item engine/build-win/Release/pocketeye_c.dll, $ocv, $runtime native/
+          Copy-Item engine/build-win/Release/pocketeye-cli.exe, $ocv, $runtime cli/
+          Get-ChildItem native, cli
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build Windows app
+        working-directory: app
+        env:
+          POCKETEYE_NATIVE_DIR: ${{ github.workspace }}\native
+        run: flutter build windows --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $rel = "app/build/windows/x64/runner/Release"
+          Rename-Item "$rel/pocketeye.exe" "PocketEye.exe"
+          Get-ChildItem $rel
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "$rel/*" -DestinationPath dist/PocketEye-windows.zip
+          Compress-Archive -Path cli/* -DestinationPath dist/pocketeye-cli-windows.zip
+
+      - name: Smoke test (engine loads, benchmark runs)
+        shell: pwsh
+        run: |
+          ./cli/pocketeye-cli.exe version
+          ./cli/pocketeye-cli.exe benchmark --frames 60
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PocketEye-windows
+          path: dist/*.zip
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Get OpenCV Android SDK
+        run: |
+          curl -sSL -o ocv.zip "https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip"
+          mkdir -p third_party && unzip -q ocv.zip -d third_party
+          ls third_party/OpenCV-android-sdk/sdk/native
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build phone app (phone-only mode)
+        working-directory: app
+        env:
+          OPENCV_ANDROID_SDK: ${{ github.workspace }}/third_party/OpenCV-android-sdk
+        run: flutter build apk --release --split-per-abi
+
+      - name: Build camera app for old phones
+        working-directory: camera_lite
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/PocketEye-arm64.apk
+          cp app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/PocketEye-arm32.apk
+          cp camera_lite/app/build/outputs/apk/release/app-release.apk dist/PocketEyeCamera.apk
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PocketEye-android
+          path: dist/*.apk

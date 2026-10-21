@@ -1,0 +1,78 @@
+// OpenCV Android SDK (https://github.com/opencv/opencv/releases, opencv-4.x-android-sdk.zip),
+// unpacked; set OPENCV_ANDROID_SDK or -PopencvAndroidSdk=<dir containing "sdk">.
+val opencvAndroidSdk: String = System.getenv("OPENCV_ANDROID_SDK")
+    ?: (project.findProperty("opencvAndroidSdk") as String?)
+    ?: "${rootDir}/../../third_party/OpenCV-android-sdk"
+
+plugins {
+    id("com.android.application")
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
+android {
+    namespace = "com.pocketeye.pocketeye"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        applicationId = "com.pocketeye.pocketeye"
+        // You can update the following values to match your application needs.
+        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
+        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
+        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
+        // flag during build.
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+        externalNativeBuild {
+            cmake {
+                // The tracking engine (engine/), without video-file support.
+                arguments += listOf(
+                    "-DPE_BUILD_CLI=OFF",
+                    "-DPE_BUILD_TESTS=OFF",
+                    "-DPE_WITH_VIDEOIO=OFF",
+                    "-DANDROID_STL=c++_shared",
+                    "-DOpenCV_DIR=$opencvAndroidSdk/sdk/native/jni",
+                )
+                targets += "pocketeye_c"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("../../../engine/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    buildTypes {
+        release {
+            // TODO: Add your own signing config for the release build.
+            // Signing with the debug keys for now, so `flutter run --release` works.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+flutter {
+    source = "../.."
+}
