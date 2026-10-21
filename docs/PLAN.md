@@ -10,6 +10,17 @@ Working name: `pocketeye` (placeholder, easy to rename) **[DECIDE]**
 - **Exactly one camera, front view only:** the phone's back camera, mounted behind the bowler's stumps, facing the batsman (the batsman's front). There is no side camera, no second phone and no camera behind the batsman.
 - Every metric below is computed from this single front view. The engine is designed for one camera only, so it never waits for a second view.
 
+## 0.1 Target camera phones: 2016-era budget phones (confirmed)
+- **Primary camera phone class:** 2016 budget phones. Typically Android 5.0–7.x, 1–2 GB RAM, a Snapdragon 410/425/430 or MediaTek MT67xx class chip, 720p @ 30 fps (sometimes 1080p @ 30), 2.4 GHz Wi-Fi only, and no manual shutter. The SM-G531F is the reference device.
+- These phones **only capture and stream**. All analysis runs on the laptop (phone + laptop mode). They never run the tracking engine.
+- The phone side is therefore the native **`camera_lite`** app (Option A below, now confirmed):
+  - `minSdk 21` (Android 5.0), plain Android framework APIs only, Camera1 API (works on every 2016 phone; Camera2 is usually LEGACY on them), MediaCodec hardware H.264.
+  - Target: APK < 2 MB, < 100 MB RAM in use, so 1 GB phones are fine.
+  - **First-launch probe** (instead of a full benchmark): test which resolution and fps the camera and hardware encoder sustain. Try 720p30, then 640×480 @ 30, then 720p @ 24. Pick the best stable one and report it to the laptop. The laptop widens the error bars to match.
+  - Adaptive bitrate (start at 6–8 Mbps, step down if 2.4 GHz Wi-Fi can't keep up). Dropped frames are logged, never faked.
+  - Android 4.4 (KitKat) support is *possible* with the same APIs, if you have a phone that needs it. Not planned by default.
+- The Flutter app (Android 7+) remains for later, stronger phones (phone-only mode, Step 4). It is not needed for 2016 phones.
+
 ## 1. Key findings that shape the design
 
 ### 1.1 Flutter cannot run on the SM-G531F
@@ -221,7 +232,7 @@ ball-tracking-home-match-/
 ---
 
 ## 7. Open questions for you
-1. **Old phone:** OK to build the small native Kotlin `camera_lite` app (Option A), and use stock-camera recordings / IP Webcam only for early prototyping?
+1. ~~**Old phone:** OK to build the small native Kotlin `camera_lite` app (Option A)?~~ **Confirmed:** `camera_lite` targets 2016 budget phones (see §0.1).
 2. **Stack:** OK with C++17 + OpenCV + Eigen + FFmpeg for the engine, and Flutter + media_kit + drift + a hand-made 3D view for the app?
 3. **Calibration:** OK to add the optional stump base/top taps (8 points total) and a stump-width field?
 4. **Batsman handedness:** add a right/left-handed setting per batter (needed for off/leg and in/out-swing labels)?
