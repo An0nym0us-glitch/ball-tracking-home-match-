@@ -1,6 +1,6 @@
 # Pocket Hawk-Eye — Plan & Architecture (draft for review)
 
-Status: **Step 1 (engine) working on synthetic videos; real recordings next.** Defaults below were accepted ("just build it").
+Status: **Steps 1–4 built** (engine, Windows app, old-phone camera app, phone-only Android app). Tested on synthetic videos; real recordings next. How to use: [USER_GUIDE.md](USER_GUIDE.md). Defaults below were accepted ("just build it").
 Measured accuracy: [accuracy.md](accuracy.md).
 
 ### Step 1 progress
@@ -10,6 +10,12 @@ Measured accuracy: [accuracy.md](accuracy.md).
 - [x] 1d End-to-end accuracy evaluation + CI gate (`tools/eval`, `.github/workflows/engine.yml`)
 - [ ] 1e Real recordings: needs clips from you (see README "Use it on your own recording")
 - Known weak spots (720p/30 fps): pad impacts close to the bounce are often not recognised; plumb LBWs often end as umpire's call. See accuracy.md.
+
+### Steps 2–4 progress
+- [x] 2 Windows laptop app (Flutter + dart:ffi to `pocketeye_c.dll`): pitch setup, tap-the-stumps calibration with a check overlay, File mode (analyse a video with progress, result cards, frame-by-frame replay with path overlay and zoom, pitch map, all metrics with 90 % ranges, No-shot toggle), built by CI as a zip.
+- [x] 3 Old-phone side: `camera_lite` (Java, Camera1, Android 5+, QR pairing with ZXing, manual address, JPEG streaming with capture times, auto-reconnect, result card), laptop Live mode (TCP server, pairing code, clock sync + latency, live delivery detection, result card sent back). See [protocol.md](protocol.md). Tested end to end on Linux with `tools/fake_phone.py`.
+- [x] 4 Phone-only mode on Android 7+ (camera plugin YUV stream → engine in a background isolate, frame skipping when busy) + first-launch benchmark that suggests phone-only 60/30 fps or the laptop mode.
+- [ ] Not yet tried on the real phones (SM-G531F, Redmi Note 10S) or a real Windows laptop: only CI builds and Linux desktop tests.
 
 Working name: `pocketeye` (easy to rename).
 
