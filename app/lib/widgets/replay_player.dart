@@ -104,7 +104,7 @@ class _ReplayPlayerState extends State<ReplayPlayer> {
                   maxScale: 10,
                   child: Stack(fit: StackFit.expand, children: [
                     Image.memory(f.jpeg, fit: BoxFit.fill, gaplessPlayback: true),
-                    CustomPaint(painter: _OverlayPainter(widget.delivery, f.t, widget.imageWidth, widget.imageHeight)),
+                    CustomPaint(painter: _OverlayPainter(widget.delivery, f.t, widget.imageWidth, widget.imageHeight, _zoom)),
                   ]),
                 ),
               );
@@ -127,11 +127,7 @@ class _ReplayPlayerState extends State<ReplayPlayer> {
             },
           ),
         ),
-        IconButton(
-          tooltip: _zoomed ? 'Whole picture' : 'Zoom on batter',
-          icon: Icon(_zoomed ? Icons.zoom_out_map : Icons.zoom_in),
-          onPressed: _toggleZoom,
-        ),
+        TextButton(onPressed: _toggleZoom, child: Text(_zoomed ? 'Whole picture' : 'Zoom on batter')),
         DropdownButton<double>(
           value: _speed,
           items: const [
@@ -148,19 +144,22 @@ class _ReplayPlayerState extends State<ReplayPlayer> {
 }
 
 class _OverlayPainter extends CustomPainter {
-  _OverlayPainter(this.d, this.t, this.w, this.h);
+  _OverlayPainter(this.d, this.t, this.w, this.h, this.zoom) : super(repaint: zoom);
   final Delivery d;
   final double t;
   final int w, h;
+  final TransformationController zoom;
 
   @override
   void paint(Canvas canvas, Size size) {
     final sx = size.width / w, sy = size.height / h;
+    // Constant line widths on screen whatever the zoom.
+    final k = 1 / zoom.value.getMaxScaleOnAxis().clamp(1.0, 20.0);
     Offset uv(double u, double v) => Offset(u * sx, v * sy);
 
     final ballPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
+      ..strokeWidth = 1.5 * k;
     for (final o in d.obs) {
       if (o.t > t + 1e-6) break;
       ballPaint.color = switch (o.label) {
@@ -168,11 +167,11 @@ class _OverlayPainter extends CustomPainter {
         -1 => Colors.grey,
         _ => Colors.yellowAccent,
       };
-      canvas.drawCircle(uv(o.u, o.v), (o.r * sx).clamp(3.0, 30.0) + 2, ballPaint);
+      canvas.drawCircle(uv(o.u, o.v), (o.r * sx).clamp(3.0 * k, 30.0) + 2 * k, ballPaint);
     }
     final pathPaint = Paint()
       ..color = Colors.orange
-      ..strokeWidth = 3
+      ..strokeWidth = 3 * k
       ..style = PaintingStyle.stroke;
     final path = Path();
     var started = false;
@@ -190,22 +189,22 @@ class _OverlayPainter extends CustomPainter {
     final tb = d.tBounce;
     if (tb != null && t >= tb) {
       final p = d.path.firstWhere((p) => p.t >= tb, orElse: () => d.path.last);
-      canvas.drawCircle(uv(p.u, p.v), 8, Paint()
+      canvas.drawCircle(uv(p.u, p.v), 8 * k, Paint()
         ..color = Colors.greenAccent
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3);
+        ..strokeWidth = 3 * k);
     }
     final ti = d.tImpact;
     if (ti != null && t >= ti && d.projection.isNotEmpty) {
       final proj = Paint()
         ..color = Colors.cyanAccent
-        ..strokeWidth = 3;
+        ..strokeWidth = 3 * k;
       for (var i = 1; i < d.projection.length; i += 2) {
         final a = d.projection[i - 1], b = d.projection[i];
         canvas.drawLine(uv(a.u, a.v), uv(b.u, b.v), proj);
       }
       final first = d.projection.first;
-      canvas.drawCircle(uv(first.u, first.v), 7, Paint()..color = Colors.purpleAccent);
+      canvas.drawCircle(uv(first.u, first.v), 7 * k, Paint()..color = Colors.purpleAccent);
     }
   }
 

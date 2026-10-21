@@ -38,8 +38,8 @@ jobs:
           New-Item -ItemType Directory -Force native, cli | Out-Null
           $runtime = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") | ForEach-Object { "C:\Windows\System32\$_" }
           $ocv = @("C:\opencv\build\x64\vc16\bin\opencv_world$ver.dll", "C:\opencv\build\x64\vc16\bin\opencv_videoio_ffmpeg${ver}_64.dll")
-          Copy-Item engine/build-win/Release/pocketeye_c.dll, $ocv, $runtime native/
-          Copy-Item engine/build-win/Release/pocketeye-cli.exe, $ocv, $runtime cli/
+          Copy-Item -Path (@("engine/build-win/Release/pocketeye_c.dll") + $ocv + $runtime) -Destination native/
+          Copy-Item -Path (@("engine/build-win/Release/pocketeye-cli.exe") + $ocv + $runtime) -Destination cli/
           Get-ChildItem native, cli
 
       - uses: subosito/flutter-action@v2
