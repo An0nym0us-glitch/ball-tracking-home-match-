@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <optional>
 #include <random>
 #include <sstream>
 
@@ -110,13 +111,13 @@ Hypothesis scan(const Camera& cam, const std::vector<Observation>& obs, Hypothes
   Hypothesis best = h;
   *best_total = std::numeric_limits<double>::infinity();
   Eigen::VectorXd warm;
-  for (int m = std::min(m_min, n - 1); m < n; ++m) {
+  auto evaluate = [&](int m) {
     Hypothesis c = h;
     c.end = m;
     opt.initial_theta = warm;
     opt.max_iterations = warm.size() ? 30 : 60;
     c.fit = fitHypothesis(cam, obs, c, opt);
-    if (!c.fit.ok) continue;
+    if (!c.fit.ok) return;
     warm = c.fit.theta;
     const double t_lo = c.bounce ? obs[c.kb].t : 0.0;
     const double t_hi = c.bounce ? obs[c.kb + 1].t : 0.0;
@@ -127,6 +128,18 @@ Hypothesis scan(const Camera& cam, const std::vector<Observation>& obs, Hypothes
       best = c;
       best.ok = true;
       best.deviated = m < n - 1;
+    }
+  };
+  // Coarse pass (long 60 fps tracks), then every index around the best end.
+  const int first = std::min(m_min, n - 1);
+  const int stride = n > 40 ? 3 : 1;
+  for (int m = first; m < n; m += stride) evaluate(m);
+  if (stride > 1) {
+    if (n - 1 > first && (n - 1 - first) % stride) evaluate(n - 1);
+    const int centre = best.ok ? best.end : first;
+    warm = best.ok ? best.fit.theta : Eigen::VectorXd();
+    for (int m = std::max(first, centre - stride + 1); m <= std::min(n - 1, centre + stride - 1); ++m) {
+      if (m != centre) evaluate(m);
     }
   }
   return best;
@@ -177,7 +190,36 @@ struct Derived {
   Vec3 impact = Vec3::Constant(kNaN);
 };
 
-Derived derive(const Trajectory& tr, const AnalysisConfig& cfg, double t_first, double t_impact) {
+// Where the ball would cross the stumps line without the pad. If the path
+// reaches the ground first (a full toss that would have pitched, or a second
+// bounce), it bounces with the ball type's restitution and friction.
+std::optional<Vec3> projectToStumps(const Trajectory& tr, const AnalysisConfig& cfg, double t_from,
+                                    double restitution, double friction) {
+  const double L = cfg.pitch.length, rb = cfg.ball.radius;
+  double t = tr.has_bounce ? std::max(t_from, tr.t_bounce + 0.02) : t_from;
+  const double t_max = tr.tEnd();
+  Vec3 prev = tr.position(t);
+  for (; t < t_max; t += 0.002) {
+    const Vec3 p = tr.position(t + 0.002);
+    if (prev.y() < L && p.y() >= L) {
+      const double a = (L - prev.y()) / (p.y() - prev.y());
+      return Vec3(prev + a * (p - prev));
+    }
+    if (p.z() <= rb && prev.z() > rb) {
+      const Vec3 v = tr.velocity(t + 0.002);
+      const Vec3 vb(friction * v.x(), friction * v.y(), -restitution * v.z());
+      const FlightPath after(Vec3(p.x(), p.y(), rb), vb, 0.0, 0.0, 1.5,
+                             FlightParams{cfg.ball.drag_k, 0.0});
+      if (const auto ts = after.timeAtY(L, 0.0, 1.5)) return after.position(*ts);
+      return std::nullopt;
+    }
+    prev = p;
+  }
+  return std::nullopt;
+}
+
+Derived derive(const Trajectory& tr, const AnalysisConfig& cfg, double t_first, double t_impact,
+               double restitution, double friction) {
   Derived d;
   const double L = cfg.pitch.length;
   const double pre_end = tr.has_bounce ? tr.t_bounce : tr.tEnd();
@@ -189,9 +231,9 @@ Derived derive(const Trajectory& tr, const AnalysisConfig& cfg, double t_first, 
   d.release_speed = v_rel.norm();
 
   const auto t_st = tr.timeAtY(L, d.t_release);
-  if (t_st) {
+  if (const auto ps = projectToStumps(tr, cfg, d.t_release, restitution, friction)) {
     d.reaches_stumps = true;
-    d.at_stumps = tr.position(*t_st);
+    d.at_stumps = *ps;
   }
   double t_end = t_st ? *t_st : tr.tEnd();
   if (std::isfinite(t_impact)) {
@@ -322,8 +364,10 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
       starts.push_back(k - 1);
       starts.push_back(k);
     }
-    // The hand can also blend smoothly into the ball: also try regular steps.
-    for (int i = 0; i < std::min(n_in - 6, 24); i += 2) starts.push_back(i);
+    // The hand can also blend smoothly into the ball: also try regular steps
+    // over the first ~1.2 s of the track (more points at 60 fps).
+    const int step = std::max(2, n_in / 30);
+    for (int i = 0; i < n_in - 6 && obs_in[i].t < obs_in.front().t + 1.2; i += step) starts.push_back(i);
     std::sort(starts.begin(), starts.end());
     starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
     FitOptions o = fopt;
@@ -452,6 +496,13 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   }
   const double rms_ok = std::max(2.0, 2.5 * sigma);
   const Hypothesis* chosen = &hyps[std::min_element(totals.begin(), totals.end()) - totals.begin()];
+  if (!chosen->bounce && chosen->deviated && hyps.back().bounce) {
+    // A "full toss" whose free flight ends at ground level actually pitched
+    // there (often just before the pad): prefer the bounce explanation.
+    const Trajectory tr = extendedTrajectory(chosen->fit, obs.front().t, obs.back().t);
+    const double t_end = 0.5 * (obs[chosen->end].t + obs[chosen->end + 1].t);
+    if (tr.position(t_end).z() < rb + 0.12) chosen = &hyps.back();
+  }
   if (debugOn()) {
     for (const Hypothesis& h : hyps) {
       std::fprintf(stderr, "hyp bounce=%d kb=%d end=%d/%d dev=%d rms=%.2f total=%.1f%s\n", h.bounce, h.kb,
@@ -494,20 +545,41 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   const double t_extend_end = (hyp.bounce ? fit.theta[theta::TB] : obs[hyp.end].t) + 1.5;
   const Trajectory traj = extendedTrajectory(fit, obs.front().t - 1.0, t_extend_end);
   double t_imp = kNaN;
+  double t_imp_lo = kNaN, t_imp_hi = kNaN;  // the impact happened somewhere in between
   ImpactKind kind = ImpactKind::None;
   if (hyp.deviated && first_after >= 0) {
-    t_imp = 0.5 * (obs[hyp.end].t + obs[first_after].t);
+    // Right after hitting the pad the ball barely moves, so the impact is where
+    // the flight passes closest to the first detection after it. The last
+    // flight point may already be after the impact, so search from the one before.
+    const double a = obs[std::max(hyp.end - 1, 0)].t, b = obs[first_after].t;
+    double best_t = obs[hyp.end].t, best_d = std::numeric_limits<double>::infinity();
+    for (double t = a; t <= b; t += 0.001) {
+      const double dist = (cam.project(traj.position(t)) - obs[first_after].uv).norm();
+      if (dist < best_d) {
+        best_d = dist;
+        best_t = t;
+      }
+    }
+    const double half = 0.5 * (obs[first_after].t - obs[hyp.end].t);
+    t_imp_lo = std::max(a, best_t - half);
+    t_imp_hi = std::min(b, best_t + half);
     kind = ImpactKind::Pad;
   } else {
     const double y_last = traj.position(obs[hyp.end].t).y();
-    if (y_last < L - 0.4) {
+    if (y_last < L - 0.15) {
       const double dt = (obs[hyp.end].t - obs.front().t) / std::max(1, hyp.end);
-      t_imp = obs[hyp.end].t + 0.5 * dt;
+      t_imp_lo = obs[hyp.end].t;
+      t_imp_hi = obs[hyp.end].t + 2.0 * dt;  // lost: up to two frames later
       kind = ImpactKind::Lost;
     }
   }
+  if (kind != ImpactKind::None) t_imp = 0.5 * (t_imp_lo + t_imp_hi);
   if (kind != ImpactKind::None) {
     const Vec3 p = traj.position(t_imp);
+    if (debugOn()) {
+      std::fprintf(stderr, "impact %s t=%.3f p=(%.2f %.2f %.2f) L=%.2f end=%d first_after=%d\n",
+                   impactKindName(kind), t_imp, p.x(), p.y(), p.z(), L, hyp.end, first_after);
+    }
     if (p.y() > L + 0.3) {
       kind = ImpactKind::None;
     } else if (p.y() >= L - 0.10) {
@@ -534,7 +606,7 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   }
 
   // --- Metrics (nominal) and plausibility.
-  const Derived nom = derive(traj, cfg, obs.front().t, t_imp);
+  const Derived nom = derive(traj, cfg, obs.front().t, t_imp, cfg.ball.restitution, cfg.ball.friction);
   if (!nom.ok) {
     res.reject_reason = "ball is not moving towards the batter";
     return res;
@@ -589,6 +661,7 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   }
   std::mt19937 rng(cfg.seed);
   std::normal_distribution<double> nd(0.0, 1.0);
+  std::uniform_real_distribution<double> uni(0.0, 1.0);
   const double so = offSign(cfg.batter);
   std::vector<double> s_rel, s_avg, s_swing, s_turn, s_bx, s_len, s_sx, s_sz, s_ix, s_iz, s_hit;
   ModelSpec spec_ext = fit.spec;
@@ -598,9 +671,12 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   for (int s = 0; s < cfg.mc_samples; ++s) {
     Eigen::VectorXd z(np);
     for (Eigen::Index i = 0; i < np; ++i) z[i] = nd(rng);
-    const Eigen::VectorXd th = fit.theta + S * z;
+    const Eigen::VectorXd th = fit.theta + cfg.uncertainty_scale * (S * z);
     const Trajectory tr = buildTrajectory(spec_ext, th);
-    const Derived d = derive(tr, cfg, obs.front().t, t_imp);
+    const double t_imp_s = std::isfinite(t_imp) ? t_imp_lo + uni(rng) * (t_imp_hi - t_imp_lo) : kNaN;
+    const double e_s = std::clamp(cfg.ball.restitution + 0.1 * nd(rng), 0.2, 0.95);
+    const double mu_s = std::clamp(cfg.ball.friction + 0.06 * nd(rng), 0.5, 1.0);
+    const Derived d = derive(tr, cfg, obs.front().t, t_imp_s, e_s, mu_s);
     if (!d.ok) continue;
     const double cx = cfg.calib_sigma_x_m * nd(rng);
     const double cz = cfg.calib_sigma_z_m * nd(rng);

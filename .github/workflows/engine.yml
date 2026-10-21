@@ -1,0 +1,45 @@
+name: engine
+
+on:
+  push:
+    paths: ["engine/**", "tools/**", ".github/workflows/engine.yml"]
+  pull_request:
+    paths: ["engine/**", "tools/**", ".github/workflows/engine.yml"]
+
+jobs:
+  build-test-eval:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++ libopencv-dev libeigen3-dev libgtest-dev \
+            nlohmann-json3-dev ffmpeg python3-numpy python3-opencv
+
+      - name: Build
+        run: |
+          cmake -S engine -B engine/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build engine/build
+
+      - name: Unit tests (engine math)
+        run: ./engine/build/pocketeye-tests
+
+      - name: Synthetic accuracy gate (random deliveries, 720p30)
+        run: |
+          python3 tools/eval/run_eval.py --generate 24 --seed 101 --work out/eval_random \
+            --report out/eval_random.md --gate
+
+      - name: Synthetic accuracy gate (plumb LBWs must be OUT)
+        run: |
+          python3 tools/eval/run_eval.py --generate 12 --seed 202 --scenario plumb \
+            --work out/eval_plumb --report out/eval_plumb.md --gate
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accuracy-reports
+          path: out/*.md

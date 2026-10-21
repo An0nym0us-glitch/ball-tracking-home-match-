@@ -35,6 +35,11 @@ struct AnalysisConfig {
   // added in the Monte-Carlo (the fit covariance alone does not know about it).
   double calib_sigma_x_m = 0.012;
   double calib_sigma_z_m = 0.02;
+  // The fit covariance assumes a perfect model; real errors (calibration, drag
+  // and swing modelling, blob centre bias) are larger. Scale measured on the
+  // synthetic evaluation so that the 90 % intervals cover the truth ~90 % of
+  // the time; re-check on real recordings.
+  double uncertainty_scale = 1.8;
   unsigned seed = 12345;
 };
 

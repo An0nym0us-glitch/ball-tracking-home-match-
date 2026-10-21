@@ -1,6 +1,15 @@
 # Pocket Hawk-Eye — Plan & Architecture (draft for review)
 
-Status: **Step 1 (engine) in progress.** Defaults below were accepted ("just build it").
+Status: **Step 1 (engine) working on synthetic videos; real recordings next.** Defaults below were accepted ("just build it").
+Measured accuracy: [accuracy.md](accuracy.md).
+
+### Step 1 progress
+- [x] 1a Synthetic delivery generator with exact ground truth (`tools/synth`)
+- [x] 1b Engine: stump calibration, colour 3-frame-difference detector, dynamic-programming ball path search (replaces the per-frame Kalman tracker, which kept following the bowler's arm and noise), physics fit (gravity, drag, swing, bounce), impact detection, LBW with Monte-Carlo probabilities, JSON + replay video (`engine/`)
+- [x] 1c Unit tests for the math (37 GoogleTest tests)
+- [x] 1d End-to-end accuracy evaluation + CI gate (`tools/eval`, `.github/workflows/engine.yml`)
+- [ ] 1e Real recordings: needs clips from you (see README "Use it on your own recording")
+- Known weak spots (720p/30 fps): pad impacts close to the bounce are often not recognised; plumb LBWs often end as umpire's call. See accuracy.md.
 
 Working name: `pocketeye` (easy to rename).
 

@@ -32,7 +32,8 @@ PRESETS = {
 SPEEDS = {"tennis": (15, 30), "plastic": (12, 24), "rubber": (15, 30), "leather": (18, 36)}
 
 
-def random_scene(rng: np.random.Generator, preset: str, overrides: dict | None = None) -> dict:
+def random_scene(rng: np.random.Generator, preset: str, overrides: dict | None = None,
+                 scenario: str = "random") -> dict:
     p = PRESETS[preset]
     L = float(rng.uniform(12.0, 20.12))
     ball = str(rng.choice(list(physics.BALLS)))
@@ -67,7 +68,7 @@ def random_scene(rng: np.random.Generator, preset: str, overrides: dict | None =
         "frame_jitter_s": 0.001,
         "drop_prob": 0.01,
         "tap_sigma_px": 1.0,
-        "give_length": bool(rng.random() < 0.8),
+        "give_length": True,  # the app requires a measured length (the stumps-only estimate is a fallback)
         "delivery": {
             "ball": ball,
             "speed": float(rng.uniform(*SPEEDS[ball])),
@@ -85,6 +86,18 @@ def random_scene(rng: np.random.Generator, preset: str, overrides: dict | None =
             "t_release": 0.8,
         },
     }
+    if scenario == "plumb":
+        # Straight, full deliveries that hit the pad in line and go on to hit
+        # the stumps: checks that clear LBWs are given OUT.
+        dl = scene["delivery"]
+        dl["release"][0] = float(rng.uniform(-0.1, 0.1))
+        dl["release"][2] = float(rng.uniform(1.7, 1.9))
+        dl["bounce_x"] = float(rng.uniform(-0.05, 0.05))
+        dl["bounce_y"] = float(L * rng.uniform(0.78, 0.88))
+        dl["lateral_accel"] = float(rng.uniform(-0.5, 0.5))
+        dl["turn_deg"] = float(rng.uniform(-1.0, 1.0))
+        dl["pad_y"] = float(L - rng.uniform(0.6, 1.1))
+        dl["speed"] = float(rng.uniform(*SPEEDS[ball]) * 0.85)
     if overrides:
         for k, v in overrides.items():
             if k == "delivery":
@@ -218,11 +231,12 @@ def _job(args):
     return out_dir
 
 
-def generate(out: str, count: int, seed: int, preset: str, workers: int, overrides: dict | None = None):
+def generate(out: str, count: int, seed: int, preset: str, workers: int, overrides: dict | None = None,
+             scenario: str = "random"):
     rng = np.random.default_rng(seed)
     jobs = []
     for i in range(count):
-        scene = random_scene(rng, preset, overrides)
+        scene = random_scene(rng, preset, overrides, scenario)
         jobs.append((scene, os.path.join(out, f"scene_{i:04d}"), seed * 100003 + i))
     if workers <= 1:
         return [_job(j) for j in jobs]
@@ -238,9 +252,10 @@ def main():
     ap.add_argument("--preset", choices=sorted(PRESETS), default="720p30")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--override", default=None, help="JSON dict merged into every scene")
+    ap.add_argument("--scenario", choices=["random", "plumb"], default="random")
     a = ap.parse_args()
     overrides = json.loads(a.override) if a.override else None
-    for d in generate(a.out, a.count, a.seed, a.preset, a.workers, overrides):
+    for d in generate(a.out, a.count, a.seed, a.preset, a.workers, overrides, a.scenario):
         print(d)
 
 

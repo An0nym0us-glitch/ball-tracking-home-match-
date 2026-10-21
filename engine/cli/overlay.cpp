@@ -93,7 +93,8 @@ void drawDelivery(cv::Mat& img, const DeliveryResult& r, const AnalysisConfig& c
                cv::Scalar(255, 255, 0), 2, cv::LINE_AA);
     }
   }
-  if (t >= r.t_last) drawCard(img, r);
+  const double t_card = std::isfinite(r.t_impact) ? std::min(r.t_last, r.t_impact + 0.3) : r.t_last;
+  if (t >= t_card) drawCard(img, r);
 }
 
 }  // namespace
