@@ -6,6 +6,10 @@ Working name: `pocketeye` (placeholder, easy to rename) **[DECIDE]**
 
 ---
 
+## 0. Camera setup (confirmed)
+- **Exactly one camera, front view only:** the phone's back camera, mounted behind the bowler's stumps, facing the batsman (the batsman's front). There is no side camera, no second phone and no camera behind the batsman.
+- Every metric below is computed from this single front view. The engine is designed for one camera only, so it never waits for a second view.
+
 ## 1. Key findings that shape the design
 
 ### 1.1 Flutter cannot run on the SM-G531F
