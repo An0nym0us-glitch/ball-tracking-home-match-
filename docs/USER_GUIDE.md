@@ -13,6 +13,10 @@ There are three apps:
 
 The apps are built automatically on GitHub for every change.
 
+Easiest, including straight from the phone: open the repository on GitHub → **Releases** → **PocketEye latest build** and tap the file you need.
+
+Or, signed in to GitHub:
+
 1. Open the repository on GitHub → **Actions** → workflow **apps** → the newest green run on the branch.
 2. At the bottom, under **Artifacts**, download:
    - `PocketEye-windows`: contains `PocketEye-windows.zip` (the laptop app) and `pocketeye-cli-windows.zip` (command-line tool).
