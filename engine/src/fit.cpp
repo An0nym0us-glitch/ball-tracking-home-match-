@@ -66,6 +66,28 @@ void observationResiduals(const Problem& pb, const FlightPath& path,
   }
 }
 
+// Soft physical priors (see BallSpec): swing size, drag, and how much vertical
+// and along-pitch speed the bounce keeps. Kept tight enough that a fit cannot
+// absorb a rebound off the pad by pretending the ball slowed down at the bounce.
+void priorResiduals(bool bounce, const Eigen::VectorXd& th, const BallSpec& ball, double t_lo,
+                    double t_hi, Eigen::VectorXd& r, Eigen::Index& k) {
+  if (bounce) {
+    const double viz = th[VIZ], viy = th[VIY];
+    r[k++] = th[ALAT] / 6.0;
+    r[k++] = (th[LOGK_B] - std::log(ball.drag_k)) / 0.6;
+    r[k++] = (th[VOZ] - ball.restitution * (-viz)) / (0.2 * std::abs(viz) + 0.3);
+    r[k++] = (th[VOY] - ball.friction * viy) / (0.1 * std::abs(viy) + 0.3);
+    const double turn = std::atan2(th[VOX], th[VOY]) - std::atan2(th[VIX], th[VIY]);
+    r[k++] = turn / 0.25;
+    // Keep the bounce time between the last pre-bounce and first post-bounce frame.
+    r[k++] = th[TB] < t_lo ? (t_lo - th[TB]) / 0.002 : 0.0;
+    r[k++] = th[TB] > t_hi ? (th[TB] - t_hi) / 0.002 : 0.0;
+  } else {
+    r[k++] = th[ALAT_F] / 6.0;
+    r[k++] = (th[LOGK_F] - std::log(ball.drag_k)) / 0.6;
+  }
+}
+
 int residualCount(const Problem& pb) {
   const int n_obs = static_cast<int>(pb.pre.size() + pb.post.size());
   return 3 * n_obs + (pb.spec.has_bounce ? 7 : 2);
@@ -77,23 +99,10 @@ void residuals(const Problem& pb, const Eigen::VectorXd& th, Eigen::VectorXd& r)
   const Trajectory tr = buildTrajectory(pb.spec, th);
   const BallSpec& ball = pb.opt->ball;
   observationResiduals(pb, tr.pre, pb.pre, r, k);
-  if (pb.spec.has_bounce) {
-    observationResiduals(pb, tr.post, pb.post, r, k);
-    const double viz = th[VIZ], viy = th[VIY];
-    r[k++] = th[ALAT] / 6.0;
-    r[k++] = (th[LOGK_B] - std::log(ball.drag_k)) / 0.6;
-    r[k++] = (th[VOZ] - ball.restitution * (-viz)) / (0.25 * std::abs(viz) + 0.3);
-    r[k++] = (th[VOY] - ball.friction * viy) / (0.2 * std::abs(viy) + 0.5);
-    const double turn = std::atan2(th[VOX], th[VOY]) - std::atan2(th[VIX], th[VIY]);
-    r[k++] = turn / 0.25;
-    // Keep the bounce time between the last pre-bounce and first post-bounce frame.
-    const double t_lo = pb.pre.back().t, t_hi = pb.post.front().t;
-    r[k++] = th[TB] < t_lo ? (t_lo - th[TB]) / 0.002 : 0.0;
-    r[k++] = th[TB] > t_hi ? (th[TB] - t_hi) / 0.002 : 0.0;
-  } else {
-    r[k++] = th[ALAT_F] / 6.0;
-    r[k++] = (th[LOGK_F] - std::log(ball.drag_k)) / 0.6;
-  }
+  if (pb.spec.has_bounce) observationResiduals(pb, tr.post, pb.post, r, k);
+  const double t_lo = pb.spec.has_bounce ? pb.pre.back().t : 0.0;
+  const double t_hi = pb.spec.has_bounce ? pb.post.front().t : 0.0;
+  priorResiduals(pb.spec.has_bounce, th, ball, t_lo, t_hi, r, k);
 }
 
 // Least squares helpers for the grid initialisation.
@@ -273,6 +282,14 @@ std::vector<double> pixelErrors(const Problem& pb, const Eigen::VectorXd& th) {
 }
 
 }  // namespace
+
+double priorCost(const FitResult& fit, const BallSpec& ball, double t_lo, double t_hi) {
+  Eigen::VectorXd r(7);
+  r.setZero();
+  Eigen::Index k = 0;
+  priorResiduals(fit.spec.has_bounce, fit.theta, ball, t_lo, t_hi, r, k);
+  return r.head(k).squaredNorm();
+}
 
 FitResult fitTrajectory(const Camera& cam, const std::vector<Observation>& pre,
                         const std::vector<Observation>& post, const FitOptions& opt) {

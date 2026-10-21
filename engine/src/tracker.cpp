@@ -19,6 +19,7 @@ struct Edge {
   double score;
   int prev;  // edge id, -1 = path starts here
   int length;
+  bool turned = false;  // the path turned sharply at `to` (velocity estimate unreliable next)
 };
 
 }  // namespace
@@ -64,7 +65,7 @@ std::vector<std::vector<std::pair<int, int>>> findBallPaths(const std::deque<Fra
           if (ratio < 0.25 || ratio > 4.0) continue;  // blur makes radii unreliable
           const double gap_pen = cfg.gap_cost * (gap - 1);
           const double reward_b = reward(cb);
-          Edge e{a, static_cast<int>(b), reward(cA) + reward_b - cfg.start_cost - gap_pen, -1, 2};
+          Edge e{a, static_cast<int>(b), reward(cA) + reward_b - cfg.start_cost - gap_pen, -1, 2, false};
           const double ta = time(a), tb = time(static_cast<int>(b));
           for (int pe_id : into[a]) {
             const Edge& p = edges[pe_id];
@@ -73,7 +74,10 @@ std::vector<std::vector<std::pair<int, int>>> findBallPaths(const std::deque<Fra
             const Vec2 v1 = (cA.uv - cz.uv) / (ta - tz);
             const Vec2 pred = cA.uv + v1 * (tb - ta);
             const double step = v1.norm() * (tb - ta);
-            const double tol = cfg.tol_px + cfg.tol_rel * step + 0.25 * (cA.radius_px + cb.radius_px);
+            double tol = cfg.tol_px + cfg.tol_rel * step + 0.25 * (cA.radius_px + cb.radius_px);
+            // A bounce spreads over two frames: right after a sharp turn the
+            // velocity from the last two points is unreliable.
+            if (p.turned) tol *= 3.0;
             const double r = (cb.uv - pred).norm() / tol;
             double pen = std::min(r * r, cfg.kink_cost);
             if (ratio < 0.4 || ratio > 2.5) pen += 1.5;
@@ -82,6 +86,7 @@ std::vector<std::vector<std::pair<int, int>>> findBallPaths(const std::deque<Fra
               e.score = s;
               e.prev = pe_id;
               e.length = p.length + 1;
+              e.turned = r > 2.0;
             }
           }
           into[b].push_back(static_cast<int>(edges.size()));

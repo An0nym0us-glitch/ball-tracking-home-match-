@@ -76,25 +76,16 @@ Trajectory extendedTrajectory(const FitResult& fit, double t_begin, double t_end
   return buildTrajectory(spec, fit.theta);
 }
 
-// Chi-square of observations against a smooth image-space curve (what the ball
-// does after hitting the pad is not modelled physically).
-double afterImpactCost(const std::vector<Observation>& obs, int from, double sigma, int n_total) {
+// What the ball does after hitting the pad is not modelled: every point after
+// the end of the free flight costs a fixed amount, a bit more than a well-fitting
+// flight point (chi-square ~2 for 2 dof). Points that fit the flight worse than
+// this end the flight.
+double afterImpactCost(const std::vector<Observation>& obs, int from) {
   const int cnt = static_cast<int>(obs.size()) - from;
   if (cnt <= 0) return 0.0;
-  const int deg = std::min(2, cnt - 1);
-  const double t0 = obs[from].t;
-  Eigen::MatrixXd A(cnt, deg + 1);
-  Eigen::MatrixXd B(cnt, 2);
-  for (int i = 0; i < cnt; ++i) {
-    for (int d = 0; d <= deg; ++d) A(i, d) = std::pow(obs[from + i].t - t0, d);
-    B(i, 0) = obs[from + i].uv.x();
-    B(i, 1) = obs[from + i].uv.y();
-  }
-  const Eigen::MatrixXd C = A.colPivHouseholderQr().solve(B);
-  const Eigen::MatrixXd E = A * C - B;
-  double chi = 0;
-  for (int i = 0; i < cnt; ++i) chi += std::min(E.row(i).squaredNorm() / (sigma * sigma), 25.0);
-  return chi + 2.0 * (deg + 1) * std::log(static_cast<double>(n_total)) + 4.0;
+  constexpr double kPerPoint = 5.0;
+  constexpr double kBreak = 4.0;
+  return kPerPoint * cnt + kBreak;
 }
 
 double flightCost(const Camera& cam, const FitResult& fit, const std::vector<Observation>& obs,
@@ -127,7 +118,10 @@ Hypothesis scan(const Camera& cam, const std::vector<Observation>& obs, Hypothes
     c.fit = fitHypothesis(cam, obs, c, opt);
     if (!c.fit.ok) continue;
     warm = c.fit.theta;
-    const double total = flightCost(cam, c.fit, obs, c, sigma) + afterImpactCost(obs, m + 1, sigma, n);
+    const double t_lo = c.bounce ? obs[c.kb].t : 0.0;
+    const double t_hi = c.bounce ? obs[c.kb + 1].t : 0.0;
+    const double total = flightCost(cam, c.fit, obs, c, sigma) + priorCost(c.fit, base.ball, t_lo, t_hi) +
+                         afterImpactCost(obs, m + 1);
     if (total < *best_total) {
       *best_total = total;
       best = c;
@@ -323,11 +317,15 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   {
     const int n_in = static_cast<int>(obs_in.size());
     const std::vector<int> kinks = kinkIndices(obs_in);
-    std::vector<int> starts = {0};
+    std::vector<int> starts;
     for (int k : kinks) {
       starts.push_back(k - 1);
       starts.push_back(k);
     }
+    // The hand can also blend smoothly into the ball: also try regular steps.
+    for (int i = 0; i < std::min(n_in - 6, 24); i += 2) starts.push_back(i);
+    std::sort(starts.begin(), starts.end());
+    starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
     FitOptions o = fopt;
     o.max_outliers = 1;
     o.max_iterations = 25;
@@ -343,15 +341,26 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
       const std::vector<Observation> rest(obs_in.begin() + s0, obs_in.end());
       const auto lows = bounceCandidates(rest);
       if (!lows.empty() && lows.front() >= 4) end = std::min(end, s0 + lows.front() + 1);
-      if (end - s0 < 5) continue;
+      if (end - s0 < 7) continue;  // fewer points: an 8-parameter flight fits anything
       const std::vector<Observation> head(obs_in.begin() + s0, obs_in.begin() + end);
       const FitResult f = fitTrajectory(cam, head, {}, o);
-      if (!f.ok || f.rms_px > 3.0 * sigma + 1.5) continue;
+      if (!f.ok || f.rms_px > 2.0 * sigma + 1.0) continue;
       const Vec3 v(f.theta[theta::VX], f.theta[theta::VY], f.theta[theta::VZ]);
       const Trajectory tr = buildTrajectory(f.spec, f.theta);
       const Vec3 p0 = tr.position(head.front().t);
       if (v.y() < 2.0 || v.norm() < 4.0 || v.norm() > 50.0) continue;
       if (p0.y() < -0.5 || p0.y() > 0.75 * L || p0.z() < 0.0 || p0.z() > 3.0) continue;
+      // Blob sizes must match a ball at the fitted distances.
+      std::vector<double> ratios;
+      for (const Observation& ob : head) {
+        if (ob.radius_px > 0) ratios.push_back(ob.radius_px / cam.apparentRadius(tr.position(ob.t), rb));
+      }
+      std::nth_element(ratios.begin(), ratios.begin() + ratios.size() / 2, ratios.end());
+      if (ratios.empty() || ratios[ratios.size() / 2] < 0.45 || ratios[ratios.size() / 2] > 2.2) continue;
+      if (debugOn()) {
+        std::fprintf(stderr, "start %d (of %d): head %d..%d rms %.2f v=(%.1f %.1f %.1f) p0=(%.2f %.2f %.2f)\n",
+                     s0, n_in, s0, end - 1, f.rms_px, v.x(), v.y(), v.z(), p0.x(), p0.y(), p0.z());
+      }
       start = s0;
     }
   }
@@ -386,31 +395,47 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   for (int k : bounceCandidates(obs)) {
     for (int kb : {k - 1, k}) kbs.push_back(kb);
   }
-  if (ft.ok && ft.deviated) {
-    // A full toss that leaves its path near the ground is really a bounce.
-    const Trajectory tr = extendedTrajectory(ft.fit, obs.front().t, obs.back().t);
-    if (tr.position(0.5 * (obs[ft.end].t + obs[ft.end + 1].t)).z() < rb + 0.15) {
+  if (ft.ok) {
+    // Where the free flight reaches the ground (or leaves its path near the
+    // ground) the ball has bounced.
+    const Trajectory tr = extendedTrajectory(ft.fit, obs.front().t, obs.back().t + 0.5);
+    if (ft.deviated && tr.position(0.5 * (obs[ft.end].t + obs[ft.end + 1].t)).z() < rb + 0.15) {
       kbs.push_back(ft.end);
       kbs.push_back(ft.end - 1);
+    }
+    for (int i = 0; i + 1 < n; ++i) {
+      if (tr.position(obs[i].t).z() > rb && tr.position(obs[i + 1].t).z() <= rb) {
+        kbs.push_back(i);
+        kbs.push_back(i - 1);
+        kbs.push_back(i + 1);
+        break;
+      }
     }
   }
   std::sort(kbs.begin(), kbs.end());
   kbs.erase(std::unique(kbs.begin(), kbs.end()), kbs.end());
 
-  // Pick the best bounce index on a short window, then scan for the impact.
+  // Pick the best bounce index on a common window (same points for every
+  // candidate, so the costs are comparable), then scan for the impact.
   Hypothesis best_bounce;
   double best_cost = std::numeric_limits<double>::infinity();
+  int window_end = 0;
+  for (int kb : kbs) window_end = std::max(window_end, kb + 3);
+  window_end = std::min(window_end, n - 1);
   for (int kb : kbs) {
-    if (kb < 3 || kb + 1 >= n) continue;
+    if (kb < 3 || kb + 1 > window_end) continue;
     Hypothesis h;
     h.bounce = true;
     h.kb = kb;
-    h.end = std::min(kb + 2, n - 1);
+    h.end = window_end;
     FitOptions o = fopt;
     o.max_outliers = 0;
     h.fit = fitHypothesis(cam, obs, h, o);
-    if (h.fit.ok && h.fit.rms_px < best_cost) {
-      best_cost = h.fit.rms_px;
+    if (!h.fit.ok) continue;
+    const double cost = flightCost(cam, h.fit, obs, h, sigma) +
+                        priorCost(h.fit, fopt.ball, obs[kb].t, obs[kb + 1].t);
+    if (cost < best_cost) {
+      best_cost = cost;
       best_bounce = h;
     }
   }
@@ -418,7 +443,7 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
     Hypothesis h = scan(cam, obs, best_bounce, best_bounce.kb + 1, fopt, sigma, &total);
     if (h.ok) {
       hyps.push_back(h);
-      totals.push_back(total + 11 * log_n);
+      totals.push_back(total + 10 * log_n);  // priors tie down part of the bounce model
     }
   }
   if (hyps.empty()) {
@@ -520,7 +545,9 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
     res.reject_reason = "implausible speed " + fmt(nom.release_speed * 3.6) + " km/h";
     return res;
   }
-  if (y_first > 0.75 * L || y_last < 0.35 * L || y_last - y_first < 0.25 * L) {
+  // The ball must be picked up in the bowler's half; a flight that only starts
+  // near the batter cannot be told apart from a rebound off the pad.
+  if (y_first > 0.55 * L || y_last < 0.35 * L || y_last - y_first < 0.25 * L) {
     res.reject_reason = "track does not cover enough of the pitch";
     return res;
   }
@@ -531,6 +558,24 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   if (fit.rms_px > 2.0 * rms_ok) {
     res.reject_reason = "track does not follow a ball flight (rms " + fmt(fit.rms_px) + " px)";
     return res;
+  }
+  {
+    // Blobs must have the size a ball would have at the fitted distance
+    // (fragments of people are often much smaller or larger).
+    std::vector<double> ratios;
+    for (int i = 0; i <= hyp.end; ++i) {
+      if (res.labels[i] == kOutlier || obs[i].radius_px <= 0) continue;
+      const double model = cam.apparentRadius(traj.position(obs[i].t), rb);
+      if (model >= 3.0) ratios.push_back(obs[i].radius_px / model);
+    }
+    if (ratios.size() >= 3) {
+      std::nth_element(ratios.begin(), ratios.begin() + ratios.size() / 2, ratios.end());
+      const double med = ratios[ratios.size() / 2];
+      if (med < 0.45 || med > 2.2) {
+        res.reject_reason = "blob size does not match a ball at that distance";
+        return res;
+      }
+    }
   }
 
   // --- Monte-Carlo uncertainty.

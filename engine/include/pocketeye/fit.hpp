@@ -67,4 +67,8 @@ struct FitResult {
 FitResult fitTrajectory(const Camera& cam, const std::vector<Observation>& pre,
                         const std::vector<Observation>& post, const FitOptions& opt);
 
+// Chi-square of the physical priors at the fitted parameters (bounce time limits
+// t_lo..t_hi are only used for a bounce model).
+double priorCost(const FitResult& fit, const BallSpec& ball, double t_lo, double t_hi);
+
 }  // namespace pe
