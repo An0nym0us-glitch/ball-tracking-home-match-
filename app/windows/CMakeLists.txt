@@ -80,7 +80,7 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 
 # Tracking engine (pocketeye_c.dll) and OpenCV DLLs, built separately
 # (see .github/workflows/apps.yml): point POCKETEYE_NATIVE_DIR at them.
-set(POCKETEYE_NATIVE_DIR "$ENV{POCKETEYE_NATIVE_DIR}")
+string(REPLACE "\\" "/" POCKETEYE_NATIVE_DIR "$ENV{POCKETEYE_NATIVE_DIR}")  # backslashes break cmake_install.cmake
 if(POCKETEYE_NATIVE_DIR)
   file(GLOB POCKETEYE_NATIVE_LIBS "${POCKETEYE_NATIVE_DIR}/*.dll")
   install(FILES ${POCKETEYE_NATIVE_LIBS} DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)

@@ -115,6 +115,20 @@ jobs:
           cp camera_lite/app/build/outputs/apk/release/app-release.apk dist/PocketEyeCamera.apk
           ls -la dist
 
+      - name: Check the engine is inside the APKs with all its libraries
+        run: |
+          system="libc.so libm.so libdl.so liblog.so libandroid.so libz.so libjnigraphics.so libmediandk.so libcamera2ndk.so libGLESv2.so libEGL.so"
+          for apk in dist/PocketEye-arm64.apk dist/PocketEye-arm32.apk; do
+            d=$(mktemp -d); unzip -q "$apk" 'lib/*' -d "$d"
+            abi=$(ls "$d/lib"); echo "$apk ($abi):"; ls -la "$d/lib/$abi"
+            so="$d/lib/$abi/libpocketeye_c.so"
+            test -f "$so" || { echo "libpocketeye_c.so missing"; exit 1; }
+            for need in $(readelf -d "$so" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do
+              case " $system " in *" $need "*) continue;; esac
+              test -f "$d/lib/$abi/$need" || { echo "$need needed but not in the APK"; exit 1; }
+            done
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: PocketEye-android
