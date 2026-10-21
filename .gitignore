@@ -1,0 +1,6 @@
+build/
+engine/build/
+__pycache__/
+*.pyc
+/out/
+/synth_out/

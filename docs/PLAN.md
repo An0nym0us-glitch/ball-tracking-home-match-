@@ -1,8 +1,17 @@
 # Pocket Hawk-Eye — Plan & Architecture (draft for review)
 
-Status: **proposal, nothing built yet.** Items marked **[DECIDE]** need your OK before code is written.
+Status: **Step 1 (engine) in progress.** Defaults below were accepted ("just build it").
 
-Working name: `pocketeye` (placeholder, easy to rename) **[DECIDE]**
+Working name: `pocketeye` (easy to rename).
+
+## Main purpose: LBW decisions (confirmed)
+The app is mainly an **LBW review system** (a home "DRS ball-tracking"). Each delivery gives:
+- **Pitching:** in line / outside off / outside leg (or full toss)
+- **Impact:** in line / outside off / outside leg ("no shot offered" toggle allows outside-off impacts)
+- **Wickets:** hitting / missing / umpire's call, with P(hitting) from the fit uncertainty
+- **Decision:** OUT / NOT OUT / UMPIRE'S CALL, plus notes (few frames after the bounce, long projection, ball lost behind the pad)
+
+Speed, swing, turn, line & length and bounce height come from the same trajectory fit and are shown as secondary info. Shot power is moved to "later".
 
 ---
 
@@ -10,8 +19,8 @@ Working name: `pocketeye` (placeholder, easy to rename) **[DECIDE]**
 - **Exactly one camera, front view only:** the phone's back camera, mounted behind the bowler's stumps, facing the batsman (the batsman's front). There is no side camera, no second phone and no camera behind the batsman.
 - Every metric below is computed from this single front view. The engine is designed for one camera only, so it never waits for a second view.
 
-## 0.1 Target camera phones: 2016-era budget phones (confirmed)
-- **Primary camera phone class:** 2016 budget phones. Typically Android 5.0–7.x, 1–2 GB RAM, a Snapdragon 410/425/430 or MediaTek MT67xx class chip, 720p @ 30 fps (sometimes 1080p @ 30), 2.4 GHz Wi-Fi only, and no manual shutter. The SM-G531F is the reference device.
+## 0.1 Target camera phones: 2016–2017 budget phones (confirmed)
+- **Primary camera phone class:** 2016–2017 budget phones. Typically Android 5.0–7.x, 1–2 GB RAM, a Snapdragon 410/425/430 or MediaTek MT67xx class chip, 720p @ 30 fps (sometimes 1080p @ 30), 2.4 GHz Wi-Fi only, and no manual shutter. The SM-G531F is the reference device.
 - These phones **only capture and stream**. All analysis runs on the laptop (phone + laptop mode). They never run the tracking engine.
 - The phone side is therefore the native **`camera_lite`** app (Option A below, now confirmed):
   - `minSdk 21` (Android 5.0), plain Android framework APIs only, Camera1 API (works on every 2016 phone; Camera2 is usually LEGACY on them), MediaCodec hardware H.264.
@@ -134,9 +143,15 @@ No AI frame interpolation anywhere. Low fps is reported as a wider error bar.
 | AI model licence | Avoid Ultralytics YOLOv8/11 (AGPL-3.0) unless you accept AGPL. Use **YOLOX-Nano (Apache-2.0)** or train our own tiny detector. **[DECIDE later]** | |
 | Experiments | Python 3 + numpy + OpenCV: synthetic video renderer, evaluation scripts | |
 
-### 3.1 Calibration **[DECIDE]**
-- **Required:** tap the 4 pitch corners. Enter pitch length (stumps to stumps), pitch width, stump height **and stump width** (home stumps vary).
-- **Strongly recommended:** also tap the stump base and top at both ends (4 more taps). The pitch is seen almost edge-on, so 4 corners alone estimate the focal length badly. With 8 points we solve focal length + pose (PnP with unknown f) robustly.
+### 3.1 Calibration: stump-based (confirmed)
+- **Calibrate from the stumps.** At home there is often no marked pitch, but there are always stumps. The user taps:
+  - **Batter's end (required):** the bottom and top of the left and right outer stumps (4 taps).
+  - **Bowler's end (whatever is visible):** stump tops and/or bottoms. With the camera just behind these stumps, their bottoms are often out of frame.
+  - **Pitch corners / crease ends (optional):** only if a pitch is marked.
+- The user enters the stump height and stump width (outer edge to outer edge); home stumps vary. **Pitch length is optional:** if it is left empty, the engine estimates the stumps-to-stumps distance from the stumps' apparent sizes, reports its uncertainty, and asks for a tape-measure value if that uncertainty is too large.
+- Solver: our own Levenberg–Marquardt over camera pose + focal length (+ pitch length when unknown), started from SQPnP. This is why stump tops matter: points at different heights pin down the focal length, which the near-edge-on ground plane cannot.
+- For LBW this is ideal: the stump zone used for "hitting/missing" is exactly where the real stumps are in the image.
+- The app shows a magnifier for tapping (far stumps are only a few pixels wide).
 - Use the phone's reported FOV / focal length (Camera1 `getHorizontalViewAngle`, Camera2 `LENS_INFO_*` / `SENSOR_INFO_PHYSICAL_SIZE`) as a prior. A one-time checkerboard calibration is an optional "pro" step.
 - Show the reprojection error after calibration, and warn if it is too high.
 
@@ -232,6 +247,7 @@ ball-tracking-home-match-/
 ---
 
 ## 7. Open questions for you
+0. All defaults accepted; LBW is the main purpose; stump-based calibration; 2016–2017 phones.
 1. ~~**Old phone:** OK to build the small native Kotlin `camera_lite` app (Option A)?~~ **Confirmed:** `camera_lite` targets 2016 budget phones (see §0.1).
 2. **Stack:** OK with C++17 + OpenCV + Eigen + FFmpeg for the engine, and Flutter + media_kit + drift + a hand-made 3D view for the app?
 3. **Calibration:** OK to add the optional stump base/top taps (8 points total) and a stump-width field?
