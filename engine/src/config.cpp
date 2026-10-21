@@ -89,6 +89,12 @@ LoadedConfig loadConfig(const json& j) {
   if (j.contains("camera_hint") && j["camera_hint"].contains("hfov_deg")) {
     in.hfov_deg = j["camera_hint"]["hfov_deg"].get<double>();
   }
+  if (j.contains("camera_height_m") && !j["camera_height_m"].is_null()) {
+    in.camera_height_m = j["camera_height_m"].get<double>();
+  }
+  if (j.contains("camera_distance_m") && !j["camera_distance_m"].is_null()) {
+    in.camera_distance_m = j["camera_distance_m"].get<double>();
+  }
   if (!j.contains("taps")) throw std::runtime_error("config needs 'taps' (or a solved 'camera')");
   for (const auto& [name, uv] : j["taps"].items()) {
     in.taps.push_back({name, Vec2(uv.at(0).get<double>(), uv.at(1).get<double>())});

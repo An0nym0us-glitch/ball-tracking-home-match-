@@ -26,6 +26,15 @@ struct CalibrationInput {
   bool length_known = true;  // false: pitch.length is only a starting guess and gets estimated
   std::vector<TapPoint> taps;
   std::optional<double> hfov_deg;  // horizontal field of view reported by the phone, if known
+  // Measured height of the phone's lens above the ground. Needed when the
+  // bowler-end stumps are out of frame (only the 4 batter-end taps).
+  std::optional<double> camera_height_m;
+  double camera_height_sigma_m = 0.03;
+  // Measured distance of the phone behind the bowler's stumps line (positive).
+  // Together with the height this places the camera when only the batter-end
+  // stumps can be tapped; the phone is assumed roughly behind the middle stump.
+  std::optional<double> camera_distance_m;
+  double camera_distance_sigma_m = 0.05;
   double tap_sigma_px = 1.0;
 };
 

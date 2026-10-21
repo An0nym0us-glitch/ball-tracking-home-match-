@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <random>
 
 #include "pocketeye/calibration.hpp"
@@ -90,4 +91,26 @@ TEST(Calibration, CornersAndStumpsTogether) {
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_LT((r.camera.center() - truth.center()).norm(), 0.15);
   EXPECT_NEAR(r.camera.f / truth.f, 1.0, 0.05);
+}
+
+TEST(Calibration, OnlyBatterStumpsWithMeasuredCamera) {
+  std::mt19937 rng(13);
+  Pitch pitch;
+  pitch.length = 16.0;
+  const Camera truth = test::standardCamera(pitch.length);
+  CalibrationInput in = makeTaps(truth, pitch, 0.7, rng);
+  in.taps.erase(std::remove_if(in.taps.begin(), in.taps.end(),
+                               [](const TapPoint& t) { return t.name.rfind("bowler", 0) == 0; }),
+                in.taps.end());
+  ASSERT_EQ(in.taps.size(), 4u);
+  EXPECT_FALSE(calibrateFromTaps(in).ok);  // not enough without the measurements
+  in.camera_height_m = truth.center().z() + 0.02;
+  in.camera_distance_m = -truth.center().y() - 0.04;
+  in.hfov_deg = 65.0;
+  const CalibrationResult r = calibrateFromTaps(in);
+  ASSERT_TRUE(r.ok) << r.error;
+  EXPECT_LT((r.camera.center() - truth.center()).norm(), 0.3);
+  // What matters for LBW: the stumps area reprojects correctly.
+  const Vec3 p(0.1, pitch.length - 1.0, 0.4);
+  EXPECT_LT((r.camera.project(p) - truth.project(p)).norm(), 2.0);
 }

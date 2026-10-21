@@ -109,19 +109,27 @@ double fitThroughOrigin(const std::vector<double>& tau, const std::vector<double
   return sse;
 }
 
+// Small polynomial least squares (up to 3 coefficients) via normal equations.
 double fitPoly(const std::vector<double>& tau, const std::vector<double>& y, int degree,
                bool with_constant, Eigen::VectorXd* coef) {
   const int cols = degree + (with_constant ? 1 : 0);
-  Eigen::MatrixXd A(tau.size(), cols);
-  Eigen::VectorXd b(tau.size());
+  Eigen::Matrix3d AtA = Eigen::Matrix3d::Zero();
+  Eigen::Vector3d Atb = Eigen::Vector3d::Zero();
+  double yy = 0;
   for (size_t i = 0; i < tau.size(); ++i) {
+    Eigen::Vector3d r = Eigen::Vector3d::Zero();
     int c = 0;
-    if (with_constant) A(i, c++) = 1.0;
-    for (int d = 1; d <= degree; ++d) A(i, c++) = std::pow(tau[i], d);
-    b[i] = y[i];
+    if (with_constant) r[c++] = 1.0;
+    double p = 1.0;
+    for (int d = 1; d <= degree; ++d) r[c++] = (p *= tau[i]);
+    AtA += r * r.transpose();
+    Atb += r * y[i];
+    yy += y[i] * y[i];
   }
-  *coef = A.colPivHouseholderQr().solve(b);
-  return (A * *coef - b).squaredNorm();
+  const Eigen::MatrixXd M = AtA.topLeftCorner(cols, cols);
+  const Eigen::VectorXd v = Atb.head(cols);
+  *coef = M.ldlt().solve(v);
+  return std::max(0.0, yy - 2.0 * coef->dot(v) + coef->dot(M * *coef));
 }
 
 struct SegmentInit {
@@ -143,12 +151,15 @@ SegmentInit initAnchored(const Camera& cam, const std::vector<Observation>& obs,
                          double tb, double vy_lo, double vy_hi, bool lateral_accel, double rb) {
   SegmentInit best;
   const Vec3 c = cam.center();
+  std::vector<Vec3> rays;
+  for (const Observation& o : obs) rays.push_back(cam.rayDirection(o.uv));
   for (double vy = vy_lo; vy <= vy_hi; vy += 0.25) {
     std::vector<double> tau, xs, zs;
     double cost = 0;
-    for (const Observation& o : obs) {
+    for (size_t i = 0; i < obs.size(); ++i) {
+      const Observation& o = obs[i];
       const double tt = o.t - tb;
-      const auto hit = intersectPlaneY(c, cam.rayDirection(o.uv), b.y() + vy * tt);
+      const auto hit = intersectPlaneY(c, rays[i], b.y() + vy * tt);
       if (!hit) {
         cost += 1e4;
         continue;
@@ -177,33 +188,45 @@ SegmentInit initFree(const Camera& cam, const std::vector<Observation>& obs, dou
                      double y_max, double rb) {
   SegmentInit best;
   const Vec3 c = cam.center();
-  for (double y0 = 0.5; y0 <= y_max; y0 += 0.2) {
-    for (double vy = 2.0; vy <= 50.0; vy += 0.5) {
-      std::vector<double> tau, xs, zs;
-      double cost = 0;
-      for (const Observation& o : obs) {
-        const double tt = o.t - t_ref;
-        const auto hit = intersectPlaneY(c, cam.rayDirection(o.uv), y0 + vy * tt);
-        if (!hit) {
-          cost += 1e4;
-          continue;
-        }
-        tau.push_back(tt);
-        xs.push_back(hit->x());
-        zs.push_back(hit->z() + 0.5 * kGravity * tt * tt);
-        cost += radiusCost(cam, *hit, rb, o);
+  std::vector<Vec3> rays;
+  for (const Observation& o : obs) rays.push_back(cam.rayDirection(o.uv));
+  std::vector<double> tau, xs, zs;
+  auto evaluate = [&](double y0, double vy) {
+    tau.clear();
+    xs.clear();
+    zs.clear();
+    double cost = 0;
+    for (size_t i = 0; i < obs.size(); ++i) {
+      const double tt = obs[i].t - t_ref;
+      const auto hit = intersectPlaneY(c, rays[i], y0 + vy * tt);
+      if (!hit) {
+        cost += 1e4;
+        continue;
       }
-      if (tau.size() < 3) continue;
-      Eigen::VectorXd cz, cx;
-      cost += fitPoly(tau, zs, 1, true, &cz) / 0.01;
-      cost += fitPoly(tau, xs, 2, true, &cx) / 0.01;
-      if (cost < best.cost) {
-        best.cost = cost;
-        best.p = Vec3(cx[0], y0, cz[0]);
-        best.v = Vec3(cx[1], vy, cz[1]);
-        best.ax = 2.0 * cx[2];
-      }
+      tau.push_back(tt);
+      xs.push_back(hit->x());
+      zs.push_back(hit->z() + 0.5 * kGravity * tt * tt);
+      cost += radiusCost(cam, *hit, rb, obs[i]);
     }
+    if (tau.size() < 3) return;
+    Eigen::VectorXd cz, cx;
+    cost += fitPoly(tau, zs, 1, true, &cz) / 0.01;
+    cost += fitPoly(tau, xs, 2, true, &cx) / 0.01;
+    if (cost < best.cost) {
+      best.cost = cost;
+      best.p = Vec3(cx[0], y0, cz[0]);
+      best.v = Vec3(cx[1], vy, cz[1]);
+      best.ax = 2.0 * cx[2];
+    }
+  };
+  // Coarse grid, then refine around the best cell.
+  for (double y0 = 0.5; y0 <= y_max; y0 += 0.5) {
+    for (double vy = 2.0; vy <= 50.0; vy += 1.5) evaluate(y0, vy);
+  }
+  if (!std::isfinite(best.cost)) return best;
+  const double y_c = best.p.y(), v_c = best.v.y();
+  for (double y0 = y_c - 0.5; y0 <= y_c + 0.5; y0 += 0.1) {
+    for (double vy = std::max(1.0, v_c - 1.5); vy <= v_c + 1.5; vy += 0.25) evaluate(y0, vy);
   }
   return best;
 }

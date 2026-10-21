@@ -72,7 +72,9 @@ void residuals(const Problem& pb, const Eigen::VectorXd& x, Eigen::VectorXd& r) 
   Pitch pitch = pb.in->pitch;
   if (est_len) pitch.length = x[7];
   const Camera cam = cameraFrom(pb, x);
-  r.resize(2 * pb.taps.size() + 1 + (est_len ? 1 : 0));
+  const bool has_h = pb.in->camera_height_m.has_value();
+  const bool has_d = pb.in->camera_distance_m.has_value();
+  r.resize(2 * pb.taps.size() + 1 + (est_len ? 1 : 0) + (has_h ? 1 : 0) + (has_d ? 2 : 0));
   Eigen::Index k = 0;
   for (const TapPoint* tp : pb.taps) {
     const Vec3 w = *tapWorldPoint(tp->name, pitch);
@@ -88,6 +90,11 @@ void residuals(const Problem& pb, const Eigen::VectorXd& x, Eigen::VectorXd& r) 
   }
   r[k++] = (x[6] - pb.log_f_prior) / pb.log_f_sigma;
   if (est_len) r[k++] = (x[7] - 18.0) / 15.0;  // very weak: keeps the length bounded
+  if (has_h) r[k++] = (cam.center().z() - *pb.in->camera_height_m) / pb.in->camera_height_sigma_m;
+  if (has_d) {
+    r[k++] = (cam.center().y() + *pb.in->camera_distance_m) / pb.in->camera_distance_sigma_m;
+    r[k++] = cam.center().x() / 0.3;  // roughly behind the middle stump
+  }
 }
 
 }  // namespace
@@ -120,9 +127,14 @@ CalibrationResult calibrateFromTaps(const CalibrationInput& in) {
       return out;
     }
   }
-  if (pb.taps.size() < 6) {
-    out.error = "need at least 6 taps: the 4 batter-end stump points plus 2 more "
-                "(bowler-end stump tops/bottoms or pitch corners)";
+  if (pb.taps.size() < 6 && !(in.camera_height_m && in.camera_distance_m)) {
+    out.error = "need at least 6 taps (the 4 batter-end stump points plus 2 more: bowler-end "
+                "stump tops/bottoms or pitch corners), or enter the camera height and its "
+                "distance behind the bowler's stumps";
+    return out;
+  }
+  if (pb.taps.size() < 6 && !in.length_known) {
+    out.error = "with only the batter-end stumps visible, please enter the pitch length";
     return out;
   }
   const bool has_corners = seen.count("corner_bowler_left") || seen.count("corner_batter_left") ||
@@ -235,7 +247,8 @@ CalibrationResult calibrateFromTaps(const CalibrationInput& in) {
     out.warnings.push_back(w.str());
     w.str("");
   }
-  if (!has_corners && !seen.count("bowler_left_top") && !seen.count("bowler_right_top")) {
+  if (!has_corners && !in.camera_height_m && !seen.count("bowler_left_top") &&
+      !seen.count("bowler_right_top")) {
     out.warnings.push_back(
         "no bowler-end stump tops tapped: focal length relies on the phone's field of view");
   }

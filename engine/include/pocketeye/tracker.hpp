@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Eigen/Core>
+#include <deque>
 #include <vector>
 
 #include "pocketeye/detector.hpp"
@@ -15,49 +15,59 @@ struct TrackPoint {
   double strength = 0.0;
 };
 
-struct TrackerConfig {
-  double jerk_density = 2e9;    // constant-acceleration process noise (px^2 / s^5)
-  double meas_sigma_px = 1.5;
-  double gate_sigma = 4.0;      // Mahalanobis gate
-  double min_gate_px = 6.0;
-  double rescue_gate_px = 30.0; // second-chance gate (bounce / pad impact kinks)
-  double max_jump_frac = 0.15;  // first association, fraction of image width
-  int max_misses = 3;
-  int max_tracks = 64;
+struct FrameCandidates {
+  int frame = 0;
+  double t = 0.0;
+  std::vector<Candidate> cands;
+  std::vector<bool> used;  // already part of an analysed path
 };
 
-// 1-D constant-acceleration Kalman filter: state [position, velocity, acceleration].
-struct Kalman1D {
-  Eigen::Vector3d x = Eigen::Vector3d::Zero();
-  Eigen::Matrix3d P = Eigen::Matrix3d::Identity();
-  void predict(double dt, double q);
-  void update(double z, double r);
+// Ball path search: dynamic programming over a window of frames. Every
+// detection is a node; a path is scored by the number of detections it
+// explains minus penalties for missed frames and for unsmooth motion. Smooth
+// motion means the next detection is where the previous two predict, with a
+// tolerance that grows with the step (perspective makes the ball slow down in
+// the image as it moves away). Sharp turns (bounce, pad) cost a fixed amount,
+// so a ball path survives a few of them while chains of random fragments,
+// which turn at every step, do not grow.
+struct PathConfig {
+  int max_gap = 3;              // frames between consecutive detections (2 missed)
+  double max_step_frac = 0.2;   // max image step per frame, fraction of the image width
+  double node_reward = 3.0;
+  double gap_cost = 1.5;        // per missed frame
+  double start_cost = 2.0;
+  double kink_cost = 6.0;       // cap of the smoothness penalty
+  double tol_px = 1.0;          // smoothness tolerance: tol_px + tol_rel * step + radius/4
+  double tol_rel = 0.35;
+  double min_step_px = 1.5;     // per frame: the ball always moves; flickering edges do not
+  double strength_ref = 25.0;   // detections this strong get the full reward
+  int min_points = 7;
+  int max_paths = 6;            // per search
 };
 
-struct TrackState {
-  int id = 0;
-  std::vector<TrackPoint> points;
-  Kalman1D ku, kv;
-  double t_last = 0.0;
-  int misses = 0;
-};
+// Finds up to cfg.max_paths disjoint paths (best first) among unused candidates.
+std::vector<std::vector<std::pair<int, int>>> findBallPaths(const std::deque<FrameCandidates>& frames,
+                                                            const PathConfig& cfg, int image_width);
 
-// Multi-target image-space tracker. Tracks end after `max_misses` frames without
-// a matching candidate; finished tracks are handed to the trajectory analysis.
+// Online wrapper: buffers candidates, searches periodically and hands out
+// paths that have ended ("settled") for analysis.
 class Tracker {
  public:
-  explicit Tracker(int image_width, TrackerConfig cfg = {});
+  Tracker(int image_width, PathConfig cfg = {}, double window_s = 4.0, double settle_s = 0.3);
   void update(int frame, double t, const std::vector<Candidate>& candidates);
   void flush();
   std::vector<std::vector<TrackPoint>> takeFinished(size_t min_points);
-  const std::vector<TrackState>& active() const { return tracks_; }
+  size_t bufferedFrames() const { return frames_.size(); }
 
  private:
-  void startFilter(TrackState& tr);
+  void search(bool all);
   int width_;
-  TrackerConfig cfg_;
-  int next_id_ = 1;
-  std::vector<TrackState> tracks_;
+  PathConfig cfg_;
+  double window_s_;
+  double settle_s_;
+  double t_now_ = 0.0;
+  int since_search_ = 0;
+  std::deque<FrameCandidates> frames_;
   std::vector<std::vector<TrackPoint>> finished_;
 };
 

@@ -56,9 +56,9 @@ std::pair<double, double> Detector::expectedRadius(const Vec2& uv) const {
   return {cam_.f * ball_radius_ / (s1 * depth_scale), cam_.f * ball_radius_ / (s0 * depth_scale)};
 }
 
-bool Detector::push(const cv::Mat& gray, double t, std::vector<Candidate>& out, double& t_mid) {
-  CV_Assert(gray.type() == CV_8UC1);
-  frames_.push_back(gray.clone());
+bool Detector::push(const cv::Mat& image, double t, std::vector<Candidate>& out, double& t_mid) {
+  CV_Assert(image.type() == CV_8UC1 || image.type() == CV_8UC3);
+  frames_.push_back(image.clone());
   times_.push_back(t);
   if (frames_.size() > 3) {
     frames_.pop_front();
@@ -76,6 +76,13 @@ void Detector::detect(const cv::Mat& prev, const cv::Mat& cur, const cv::Mat& ne
   cv::absdiff(cur, prev, d1_);
   cv::absdiff(cur, next, d2_);
   cv::min(d1_, d2_, diff_);
+  if (diff_.channels() == 3) {
+    // Colour helps a lot: a yellow ball in front of white pads has little
+    // brightness contrast but a large blue-channel difference.
+    cv::split(diff_, channels_);
+    cv::max(channels_[0], channels_[1], diff_);
+    cv::max(diff_, channels_[2], diff_);
+  }
   diff_.setTo(0, roi_ == 0);
 
   // Robust noise level from a subsampled histogram of the corridor.
@@ -101,9 +108,26 @@ void Detector::detect(const cv::Mat& prev, const cv::Mat& cur, const cv::Mat& ne
   const int n = cv::connectedComponentsWithStats(bin_, labels_, stats_, centroids_, 8, CV_32S);
   if (n - 1 > cfg_.max_blobs) return;
 
+  // Very large moving regions are people close to the camera (the bowler): small
+  // blobs right next to them are fragments of their outline, not the ball. The
+  // batter is far away and small, so blobs near the pads are kept.
+  const double big_area = cfg_.big_region_frac * cam_.width * cam_.height;
+  big_mask_ = cv::Mat::zeros(diff_.size(), CV_8U);
+  bool any_big = false;
+  for (int i = 1; i < n; ++i) {
+    if (stats_.at<int>(i, cv::CC_STAT_AREA) > big_area) {
+      big_mask_.setTo(255, labels_ == i);
+      any_big = true;
+    }
+  }
+  if (any_big) {
+    const int m = cfg_.big_region_margin_px;
+    cv::dilate(big_mask_, big_mask_, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(2 * m + 1, 2 * m + 1)));
+  }
+
   for (int i = 1; i < n; ++i) {
     const int area = stats_.at<int>(i, cv::CC_STAT_AREA);
-    if (area < 3) continue;
+    if (area < cfg_.min_area) continue;
     const int bx = stats_.at<int>(i, cv::CC_STAT_LEFT);
     const int by = stats_.at<int>(i, cv::CC_STAT_TOP);
     const int bw = stats_.at<int>(i, cv::CC_STAT_WIDTH);
@@ -142,6 +166,10 @@ void Detector::detect(const cv::Mat& prev, const cv::Mat& cur, const cv::Mat& ne
     if (elong > cfg_.max_elongation) continue;
 
     const Vec2 uv(mx, my);
+    if (any_big && big_mask_.at<uchar>(std::clamp(static_cast<int>(my), 0, big_mask_.rows - 1),
+                                       std::clamp(static_cast<int>(mx), 0, big_mask_.cols - 1))) {
+      continue;
+    }
     const auto [rmin, rmax] = expectedRadius(uv);
     if (rmax <= 0) continue;
     if (radius < 0.4 * rmin - 1.0 || radius > 1.6 * rmax + 1.5) continue;

@@ -35,6 +35,9 @@ void usage() {
       --batter right|left
       --no-shot                batter offered no shot (allows impact outside off)
       --keep-rejected          also list tracks that were not deliveries
+      --gray                   detect on brightness only (like a luma-only stream)
+      --tracks-only            debugging: list raw tracks without analysing them
+      --dump-candidates f.json debugging: per-frame ball candidates
   pocketeye-cli version
 )";
 }
@@ -45,7 +48,7 @@ std::map<std::string, std::string> parseArgs(int argc, char** argv, int start) {
     std::string k = argv[i];
     if (k.rfind("--", 0) != 0) throw std::runtime_error("unexpected argument: " + k);
     k = k.substr(2);
-    if (k == "no-shot" || k == "keep-rejected") {
+    if (k == "no-shot" || k == "keep-rejected" || k == "tracks-only" || k == "gray") {
       a[k] = "1";
     } else {
       if (i + 1 >= argc) throw std::runtime_error("missing value for --" + k);
@@ -85,7 +88,8 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
   if (args.count("batter")) cj["batter"] = args.at("batter");
   if (args.count("no-shot")) cj["no_shot_offered"] = true;
   pe::LoadedConfig cfg = pe::loadConfig(cj);
-  cfg.engine.keep_rejected = args.count("keep-rejected") > 0;
+  cfg.engine.keep_rejected = args.count("keep-rejected") > 0 || args.count("tracks-only") > 0;
+  cfg.engine.skip_analysis = args.count("tracks-only") > 0;
   for (const auto& w : cfg.calibration.warnings) std::cerr << "calibration warning: " << w << "\n";
 
   const std::string video = args.at("video");
@@ -104,6 +108,8 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
   const double fps_override = args.count("fps") ? std::stod(args.at("fps")) : 0.0;
 
   pe::Engine engine(cfg.engine);
+  json cand_dump = json::array();
+  const bool dump_cands = args.count("dump-candidates") > 0;
   std::vector<pe::DeliveryResult> results;
   std::vector<double> timestamps;
   cv::Mat frame, gray;
@@ -130,15 +136,22 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
                                std::to_string(cfg.engine.analysis.camera.height));
     }
     t0 = Clock::now();
-    if (frame.channels() == 3) {
-      cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+    if (frame.channels() == 4) {
+      cv::cvtColor(frame, gray, cv::COLOR_BGRA2BGR);
     } else {
       gray = frame;
     }
     convert_ms += msSince(t0);
     t0 = Clock::now();
-    engine.pushFrame(gray, t);
+    engine.pushFrame(args.count("gray") ? (frame.channels() == 1 ? frame : (cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY), gray)) : gray, t);
     engine_ms += msSince(t0);
+    if (dump_cands && i >= 2) {
+      json c = json::array();
+      for (const auto& cd : engine.lastCandidates()) {
+        c.push_back({cd.uv.x(), cd.uv.y(), cd.radius_px, cd.area, cd.elongation, cd.strength});
+      }
+      cand_dump.push_back({{"frame", i - 1}, {"t", timestamps[i - 1]}, {"c", c}});
+    }
     for (pe::DeliveryResult r; engine.popResult(r);) results.push_back(std::move(r));
   }
   auto t0 = Clock::now();
@@ -174,6 +187,10 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
     if (!pe::writeOverlayVideo(video, timestamps, results, cfg.engine.analysis, args.at("overlay"), &err)) {
       std::cerr << "overlay: " << err << "\n";
     }
+  }
+  if (dump_cands) {
+    std::ofstream f(args.at("dump-candidates"));
+    f << cand_dump.dump() << "\n";
   }
   writeOut(out, args);
   return 0;

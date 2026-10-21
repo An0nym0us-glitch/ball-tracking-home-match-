@@ -156,6 +156,20 @@ std::vector<int> bounceCandidates(const std::vector<Observation>& obs) {
   return out;
 }
 
+// Points where the image motion turns sharply (same smoothness measure as the
+// path search): the bowler's hand -> ball switch, the bounce, the pad.
+std::vector<int> kinkIndices(const std::vector<Observation>& obs) {
+  std::vector<int> out;
+  for (size_t i = 2; i < obs.size(); ++i) {
+    const Observation &z = obs[i - 2], &a = obs[i - 1], &b = obs[i];
+    const Vec2 v1 = (a.uv - z.uv) / (a.t - z.t);
+    const Vec2 pred = a.uv + v1 * (b.t - a.t);
+    const double tol = 1.0 + 0.35 * v1.norm() * (b.t - a.t) + 0.25 * (a.radius_px + b.radius_px);
+    if ((b.uv - pred).norm() > 3.0 * tol) out.push_back(static_cast<int>(i));
+  }
+  return out;
+}
+
 struct Derived {
   bool ok = false;
   double t_release = kNaN;
@@ -219,6 +233,7 @@ Derived derive(const Trajectory& tr, const AnalysisConfig& cfg, double t_first, 
 }
 
 double percentile(std::vector<double> v, double q) {
+  v.erase(std::remove_if(v.begin(), v.end(), [](double x) { return !std::isfinite(x); }), v.end());
   if (v.empty()) return kNaN;
   std::sort(v.begin(), v.end());
   const double pos = q * (v.size() - 1);
@@ -233,7 +248,7 @@ Estimate makeEstimate(double nominal, const std::vector<double>& samples) {
   e.value = nominal;
   e.lo = percentile(samples, 0.05);
   e.hi = percentile(samples, 0.95);
-  if (!std::isfinite(e.lo)) e.lo = e.hi = nominal;
+  if (!std::isfinite(e.lo) || !std::isfinite(e.hi)) e.lo = e.hi = nominal;
   e.valid = true;
   return e;
 }
@@ -262,23 +277,25 @@ DeliveryResult analyzeTrack(const std::vector<TrackPoint>& track, const Analysis
   DeliveryResult r = analyzeObservations(obs, cfg);
   if (!track.empty()) {
     r.frame_first = track.front().frame;
+    for (const TrackPoint& p : track) {
+      if (p.t == r.t_first) r.frame_first = p.frame;  // the start may have been trimmed
+    }
     r.frame_last = track.back().frame;
   }
   return r;
 }
 
-DeliveryResult analyzeObservations(const std::vector<Observation>& obs, const AnalysisConfig& cfg) {
+DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const AnalysisConfig& cfg) {
   const auto t_start = Clock::now();
   DeliveryResult res;
-  res.observations = obs;
-  res.labels.assign(obs.size(), kOutlier);
-  const int n = static_cast<int>(obs.size());
-  if (n < 6) {
+  res.observations = obs_in;
+  res.labels.assign(obs_in.size(), kOutlier);
+  if (obs_in.size() < 6) {
     res.reject_reason = "track too short";
     return res;
   }
-  res.t_first = obs.front().t;
-  res.t_last = obs.back().t;
+  res.t_first = obs_in.front().t;
+  res.t_last = obs_in.back().t;
   const Camera& cam = cfg.camera;
   const double L = cfg.pitch.length;
   const double rb = cfg.ball.radius;
@@ -288,6 +305,69 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs, const An
   fopt.ball = cfg.ball;
   fopt.sigma_px = sigma;
   fopt.pitch_length = L;
+
+  // --- Cheap checks first: most tracks are not balls (edges of people, noise).
+  {
+    double disp = 0;
+    for (const Observation& o : obs_in) disp = std::max(disp, (o.uv - obs_in.front().uv).norm());
+    if (obs_in.back().t - obs_in.front().t < 0.12 || disp < std::max(25.0, 0.035 * cam.height)) {
+      res.reject_reason = "track too short or not moving";
+      return res;
+    }
+  }
+  // A path can start on the bowler's hand before the release. Candidate starts
+  // are the beginning and every sharp turn; the stretch from a start to the
+  // next turn (or the first lowest point, the bounce) must be a free flight
+  // moving away from the camera at a plausible speed.
+  int start = -1;
+  {
+    const int n_in = static_cast<int>(obs_in.size());
+    const std::vector<int> kinks = kinkIndices(obs_in);
+    std::vector<int> starts = {0};
+    for (int k : kinks) {
+      starts.push_back(k - 1);
+      starts.push_back(k);
+    }
+    FitOptions o = fopt;
+    o.max_outliers = 1;
+    o.max_iterations = 25;
+    for (int s0 : starts) {
+      if (s0 < 0 || s0 + 6 > n_in || (start >= 0)) continue;
+      int end = std::min(n_in, s0 + 14);
+      for (int k : kinks) {
+        if (k > s0 + 1) {
+          end = std::min(end, k);
+          break;
+        }
+      }
+      const std::vector<Observation> rest(obs_in.begin() + s0, obs_in.end());
+      const auto lows = bounceCandidates(rest);
+      if (!lows.empty() && lows.front() >= 4) end = std::min(end, s0 + lows.front() + 1);
+      if (end - s0 < 5) continue;
+      const std::vector<Observation> head(obs_in.begin() + s0, obs_in.begin() + end);
+      const FitResult f = fitTrajectory(cam, head, {}, o);
+      if (!f.ok || f.rms_px > 3.0 * sigma + 1.5) continue;
+      const Vec3 v(f.theta[theta::VX], f.theta[theta::VY], f.theta[theta::VZ]);
+      const Trajectory tr = buildTrajectory(f.spec, f.theta);
+      const Vec3 p0 = tr.position(head.front().t);
+      if (v.y() < 2.0 || v.norm() < 4.0 || v.norm() > 50.0) continue;
+      if (p0.y() < -0.5 || p0.y() > 0.75 * L || p0.z() < 0.0 || p0.z() > 3.0) continue;
+      start = s0;
+    }
+  }
+  if (start < 0) {
+    res.reject_reason = "start of track is not a ball flight";
+    return res;
+  }
+  const std::vector<Observation> obs(obs_in.begin() + start, obs_in.end());
+  const int n = static_cast<int>(obs.size());
+  if (n < 6) {
+    res.reject_reason = "track too short";
+    return res;
+  }
+  res.observations = obs;
+  res.labels.assign(obs.size(), kOutlier);
+  res.t_first = obs.front().t;
 
   // --- Segmentation: full toss vs bounce, and where the free flight ends (impact).
   const auto t_seg = Clock::now();

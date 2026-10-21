@@ -25,6 +25,9 @@ struct DetectorConfig {
   double corridor_margin_m = 0.9;  // around the stumps line, each side
   double corridor_height_m = 2.8;
   double max_elongation = 10.0;
+  int min_area = 4;               // px
+  int big_region_margin_px = 12;  // ignore small blobs this close to large moving regions
+  double big_region_frac = 0.015;  // "large" = more than this fraction of the image
 };
 
 // Moving-ball candidates from a three-frame difference inside the pitch corridor.
@@ -33,8 +36,9 @@ class Detector {
  public:
   Detector(const Camera& cam, const Pitch& pitch, double ball_radius, DetectorConfig cfg = {});
 
-  // Returns true when candidates for the previous frame are ready (t_mid = its time).
-  bool push(const cv::Mat& gray, double t, std::vector<Candidate>& out, double& t_mid);
+  // Feed 8-bit luma (CV_8UC1) or BGR (CV_8UC3) frames. Returns true when the
+  // candidates for the previous frame are ready (t_mid = its time).
+  bool push(const cv::Mat& image, double t, std::vector<Candidate>& out, double& t_mid);
   void reset();
 
   const cv::Mat& corridorMask() const { return roi_; }
@@ -54,6 +58,8 @@ class Detector {
   std::deque<cv::Mat> frames_;
   std::deque<double> times_;
   cv::Mat d1_, d2_, diff_, bin_, labels_, stats_, centroids_;
+  cv::Mat big_mask_;
+  std::vector<cv::Mat> channels_;
 };
 
 }  // namespace pe
