@@ -19,6 +19,32 @@ class _ReplayPlayerState extends State<ReplayPlayer> {
   int _i = 0;
   Timer? _timer;
   double _speed = 0.25; // slow motion by default
+  final _zoom = TransformationController();
+  bool _zoomed = false;
+  Size _view = Size.zero;
+
+  /// Where to zoom: the pad impact, else the end of the tracked path.
+  Offset get _focus {
+    final d = widget.delivery;
+    if (d.projection.isNotEmpty) return Offset(d.projection.first.u, d.projection.first.v);
+    if (d.path.isNotEmpty) return Offset(d.path.last.u, d.path.last.v);
+    return Offset(widget.imageWidth / 2, widget.imageHeight / 2);
+  }
+
+  void _toggleZoom() {
+    setState(() {
+      _zoomed = !_zoomed;
+      if (!_zoomed || _view.isEmpty) {
+        _zoom.value = Matrix4.identity();
+        return;
+      }
+      const k = 4.0;
+      final p = Offset(_focus.dx * _view.width / widget.imageWidth, _focus.dy * _view.height / widget.imageHeight);
+      _zoom.value = Matrix4.identity()
+        ..translateByDouble(_view.width / 2 - k * p.dx, _view.height / 2 - k * p.dy, 0, 1)
+        ..scaleByDouble(k, k, 1, 1);
+    });
+  }
 
   List<ReplayFrame> get _frames => widget.delivery.frames;
 
@@ -65,12 +91,26 @@ class _ReplayPlayerState extends State<ReplayPlayer> {
     }
     final f = _frames[_i];
     return Column(children: [
-      AspectRatio(
-        aspectRatio: widget.imageWidth / widget.imageHeight,
-        child: Stack(fit: StackFit.expand, children: [
-          Image.memory(f.jpeg, fit: BoxFit.fill, gaplessPlayback: true),
-          CustomPaint(painter: _OverlayPainter(widget.delivery, f.t, widget.imageWidth, widget.imageHeight)),
-        ]),
+      Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 540),
+          child: AspectRatio(
+            aspectRatio: widget.imageWidth / widget.imageHeight,
+            child: LayoutBuilder(builder: (context, c) {
+              _view = Size(c.maxWidth, c.maxHeight);
+              return ClipRect(
+                child: InteractiveViewer(
+                  transformationController: _zoom,
+                  maxScale: 10,
+                  child: Stack(fit: StackFit.expand, children: [
+                    Image.memory(f.jpeg, fit: BoxFit.fill, gaplessPlayback: true),
+                    CustomPaint(painter: _OverlayPainter(widget.delivery, f.t, widget.imageWidth, widget.imageHeight)),
+                  ]),
+                ),
+              );
+            }),
+          ),
+        ),
       ),
       Row(children: [
         IconButton(
@@ -86,6 +126,11 @@ class _ReplayPlayerState extends State<ReplayPlayer> {
               setState(() => _i = v.round());
             },
           ),
+        ),
+        IconButton(
+          tooltip: _zoomed ? 'Whole picture' : 'Zoom on batter',
+          icon: Icon(_zoomed ? Icons.zoom_out_map : Icons.zoom_in),
+          onPressed: _toggleZoom,
         ),
         DropdownButton<double>(
           value: _speed,

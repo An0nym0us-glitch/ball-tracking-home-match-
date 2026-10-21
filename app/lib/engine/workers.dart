@@ -171,6 +171,7 @@ class _ServerState {
   final _sw = Stopwatch()..start();
   double clockOffsetUs = 0; // phone clock - laptop clock (from ping/pong)
   final latencies = <double>[];
+  double avgEngineMs = 0;
   DateTime lastPreview = DateTime(0);
   DateTime lastStats = DateTime(0);
 
@@ -317,6 +318,7 @@ class _ServerState {
       final sw = Stopwatch()..start();
       final rc = e.pushJpeg(jpeg, t);
       processMs = sw.elapsedMicroseconds / 1000.0;
+      avgEngineMs = avgEngineMs == 0 ? processMs : 0.95 * avgEngineMs + 0.05 * processMs;
       if (rc == -2) sizeMismatch++;
       for (final res in e.pollResults()) {
         _delivery(res);
@@ -335,7 +337,7 @@ class _ServerState {
         'stats': {
           'frames': frames,
           'size_mismatch': sizeMismatch,
-          'engine_ms': processMs,
+          'engine_ms': avgEngineMs,
           if (latencies.isNotEmpty) 'stream_latency_ms': latencies[latencies.length ~/ 2],
           if (e != null) ...e.stats(),
         }
