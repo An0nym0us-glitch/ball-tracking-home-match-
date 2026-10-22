@@ -191,7 +191,7 @@ def render_scene(scene: dict, out_dir: str, seed: int) -> dict:
         for _, kind in sorted(items, key=lambda it: -it[0]):
             if kind == "stumps_far":
                 render.draw_stumps(img, cam, L, s["stump_height"], s["stump_width"])
-            elif kind == "stumps_near":
+            elif kind == "stumps_near" and s.get("bowler_stumps", True):
                 render.draw_stumps(img, cam, 0.0, s["stump_height"], s["stump_width"])
             elif kind == "batter" and s.get("batter_present", True):
                 render.draw_batter(img, cam, bat_x, bat_y, t, (shirt, head), phase)
@@ -207,7 +207,8 @@ def render_scene(scene: dict, out_dir: str, seed: int) -> dict:
     # takes guard), as a camera JPEG.
     img = bg.copy()
     render.draw_stumps(img, cam, L, s["stump_height"], s["stump_width"])
-    render.draw_stumps(img, cam, 0.0, s["stump_height"], s["stump_width"])
+    if s.get("bowler_stumps", True):
+        render.draw_stumps(img, cam, 0.0, s["stump_height"], s["stump_width"])
     img += noise_bank[0]
     cv2.imwrite(os.path.join(out_dir, "calib.jpg"), np.clip(img, 0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 90])
 
@@ -224,6 +225,11 @@ def render_scene(scene: dict, out_dir: str, seed: int) -> dict:
     }
     if s["give_length"]:
         config["pitch"]["length_m"] = round(L, 2)
+    if not s.get("bowler_stumps", True):
+        # Stumps only at the batter's end: no bowler's-end points; the app
+        # needs the pitch length (from the bowling mark) and the camera position.
+        config["bowler_stumps"] = False
+        config["taps"] = {k: v for k, v in config["taps"].items() if not k.startswith("bowler")}
     if sum(1 for k in config["taps"] if k.startswith("bowler")) < 2:
         # Bowler's stumps out of frame: the app asks for two tape measurements.
         config["camera_height_m"] = round(float(cam.C[2] + rng.normal(0, 0.02)), 3)

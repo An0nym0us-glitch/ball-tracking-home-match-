@@ -24,6 +24,10 @@ struct CalibrationInput {
   int height = 0;
   Pitch pitch;
   bool length_known = true;  // false: pitch.length is only a starting guess and gets estimated
+  // false: stumps only at the batter's end (the bowler bowls from a mark).
+  // The pitch length then runs from that mark and y = 0 is the mark; the camera
+  // height and its distance behind the mark must be measured.
+  bool bowler_stumps = true;
   std::vector<TapPoint> taps;
   std::optional<double> hfov_deg;  // horizontal field of view reported by the phone, if known
   // How well hfov_deg is known (degrees). From the lens and sensor data ~0.5-1;

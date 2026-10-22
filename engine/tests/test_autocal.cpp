@@ -109,3 +109,24 @@ TEST(AutoCalibration, NoStumpsNoResult) {
   EXPECT_FALSE(a.ok);
   EXPECT_FALSE(a.message.empty());
 }
+
+TEST(AutoCalibration, OnlyBatterStumpsUsesTheMeasurements) {
+  // A pitch with stumps only at the batter's end (here the near set is drawn
+  // too: it must be ignored when the user says there are none).
+  Pitch p;
+  p.length = 17.0;
+  const Camera cam = test::standardCamera(p.length);
+  const cv::Mat img = renderPitch(cam, p, true);
+  CalibrationInput in = inputFor(cam, p, true);
+  in.bowler_stumps = false;
+  const AutoCalibration none = autoCalibrate(img, in);
+  EXPECT_TRUE(none.batter_found);
+  EXPECT_FALSE(none.bowler_found);
+  EXPECT_FALSE(none.ok) << "measurements missing";
+  in.camera_height_m = cam.center().z();
+  in.camera_distance_m = -cam.center().y();
+  const AutoCalibration a = autoCalibrate(img, in);
+  ASSERT_TRUE(a.ok) << a.message;
+  EXPECT_FALSE(a.bowler_found);
+  for (const TapPoint& t : a.taps) EXPECT_EQ(t.name.rfind("batter", 0), 0u) << t.name;
+}

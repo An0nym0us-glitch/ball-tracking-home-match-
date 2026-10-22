@@ -44,6 +44,10 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   late final _camHCtl = TextEditingController(text: _cm(widget.session.cameraHeight));
   late final _camDCtl = TextEditingController(text: _cm(widget.session.cameraDistance));
 
+  /// The points to tap: without stumps at the bowler's end only the batter's.
+  late final List<TapSpec> _specs =
+      widget.session.bowlerStumps ? tapSpecs : [for (final t in tapSpecs) if (t.required) t];
+
   static String _cm(double? m) => m == null ? '' : (m * 100).toStringAsFixed(0);
 
   /// Uncertainty above which a pitch length from the picture is not used without asking (m).
@@ -76,7 +80,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
           ..clear()
           ..addAll(taps.map((k, v) => MapEntry(k, [for (final x in v as List) (x as num).toDouble()])));
         _autoUsed = true;
-        _step = tapSpecs.length;
+        _step = _specs.length;
         final len = r['pitch_length_m'];
         if (len is num && _lengthCtl.text.isEmpty) _lengthCtl.text = len.toStringAsFixed(1);
       }
@@ -140,30 +144,30 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   }
 
   int _firstMissing() {
-    final i = tapSpecs.indexWhere((t) => !_taps.containsKey(t.name));
-    return i < 0 ? tapSpecs.length : i;
+    final i = _specs.indexWhere((t) => !_taps.containsKey(t.name));
+    return i < 0 ? _specs.length : i;
   }
 
   void _tap(TapUpDetails d) {
     _userTapped = true;
     setState(() {
       // A tap on an automatic result or a finished set starts the tapping over.
-      if (_autoUsed || _step >= tapSpecs.length) {
+      if (_autoUsed || _step >= _specs.length) {
         _taps.clear();
         _autoUsed = false;
         _step = 0;
       }
-      _taps[tapSpecs[_step].name] = [d.localPosition.dx, d.localPosition.dy];
+      _taps[_specs[_step].name] = [d.localPosition.dx, d.localPosition.dy];
       _check = null;
       _step = _nextStep(_step);
     });
   }
 
   int _nextStep(int from) {
-    for (var i = from + 1; i < tapSpecs.length; ++i) {
-      if (!_taps.containsKey(tapSpecs[i].name)) return i;
+    for (var i = from + 1; i < _specs.length; ++i) {
+      if (!_taps.containsKey(_specs[i].name)) return i;
     }
-    return tapSpecs.length;
+    return _specs.length;
   }
 
   void _skip() => setState(() => _step = _nextStep(_step));
@@ -171,8 +175,8 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   void _undo() {
     setState(() {
       _check = null;
-      for (var i = tapSpecs.length - 1; i >= 0; --i) {
-        if (_taps.remove(tapSpecs[i].name) != null) {
+      for (var i = _specs.length - 1; i >= 0; --i) {
+        if (_taps.remove(_specs[i].name) != null) {
           _step = i;
           return;
         }
@@ -235,7 +239,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
     final sigma = (_check?['pitch_length_sigma_m'] as num?)?.toDouble();
     final estLength = (_check?['pitch_length_m'] as num?)?.toDouble();
     // Ask for the length when the picture cannot give it (precisely enough).
-    final pointsReady = requiredDone && !_autoRunning && _step >= tapSpecs.length;
+    final pointsReady = requiredDone && !_autoRunning && _step >= _specs.length;
     final askLength = lengthFromPicture && pointsReady && !_lengthOk;
     final askCamera = pointsReady && _needCamera;
     final String banner;
@@ -244,9 +248,9 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
     } else if (_autoUsed) {
       banner = 'Stumps found automatically. Check that the yellow lines sit on the stumps, then Save. '
           "If they don't, tap the picture (or 'Tap them myself') to place the points yourself.";
-    } else if (_step < tapSpecs.length) {
+    } else if (_step < _specs.length) {
       banner = '${_auto != null && _auto!['batter_found'] != true ? '${_auto!['message']}\n' : ''}'
-          'Tap: ${tapSpecs[_step].label}\nPinch / scroll to zoom in. Tap the centre of the stump.';
+          'Tap: ${_specs[_step].label}\nPinch / scroll to zoom in. Tap the centre of the stump.';
     } else {
       banner = 'All points done. Press Check. (Tapping the picture starts the points again.)';
     }
@@ -309,7 +313,9 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(
-                  askCamera
+                  askCamera && !widget.session.bowlerStumps
+                      ? "Stumps only at the batter's end: the app needs three tape measurements."
+                      : askCamera
                       ? "The bowler's stumps are not in the picture, so the app needs three tape measurements "
                           "(or tap the bowler's stump tops if you can see them)."
                       : estLength != null
@@ -322,7 +328,10 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                     child: TextField(
                       controller: _lengthCtl,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'Pitch length, stumps to stumps (m)'),
+                      decoration: InputDecoration(
+                          labelText: widget.session.bowlerStumps
+                              ? 'Pitch length, stumps to stumps (m)'
+                              : "Pitch length, bowling mark to stumps (m)"),
                     ),
                   ),
                   if (askCamera) ...[
@@ -339,7 +348,10 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                       child: TextField(
                         controller: _camDCtl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: "Camera behind bowler's stumps (cm)"),
+                        decoration: InputDecoration(
+                            labelText: widget.session.bowlerStumps
+                                ? "Camera behind bowler's stumps (cm)"
+                                : 'Camera behind the bowling mark (cm)'),
                       ),
                     ),
                   ],
@@ -356,7 +368,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
               else ...[
                 OutlinedButton.icon(
                     onPressed: _taps.isEmpty ? null : _undo, icon: const Icon(Icons.undo), label: const Text('Undo')),
-                if (_step < tapSpecs.length && !tapSpecs[_step].required)
+                if (_step < _specs.length && !_specs[_step].required)
                   OutlinedButton(onPressed: _skip, child: const Text('Skip (not visible)')),
                 OutlinedButton.icon(
                     onPressed: _autoRunning ? null : _findStumps,

@@ -537,7 +537,8 @@ AutoCalibration autoCalibrate(const cv::Mat& image, const CalibrationInput& in) 
     a.message = "Could not find the batter's stumps. Tap them yourself.";
     return a;
   }
-  const auto bowler = findBowlerStumps(image, in.pitch, 4);
+  // No stumps at the bowler's end: do not look for them (anything found would be wrong).
+  const auto bowler = in.bowler_stumps ? findBowlerStumps(image, in.pitch, 4) : std::vector<StumpSetCandidate>{};
   const double hfov = in.hfov_deg.value_or(65.0);
   const double f_prior = 0.5 * in.width / std::tan(0.5 * hfov * kPi / 180.0);
 
@@ -597,9 +598,17 @@ AutoCalibration autoCalibrate(const cv::Mat& image, const CalibrationInput& in) 
     if (plausible(r, false)) {
       a.ok = true;
       a.calibration = r;
-      a.message = "Found the batter's stumps. The bowler's stumps are not in the picture, so your measurements are used.";
+      a.message = in.bowler_stumps
+                      ? "Found the batter's stumps. The bowler's stumps are not in the picture, so your measurements "
+                        "are used."
+                      : "Found the batter's stumps. Your pitch length and camera measurements are used.";
       return a;
     }
+  }
+  if (!in.bowler_stumps) {
+    a.message = "Found the batter's stumps. Enter the pitch length (bowling mark to the batter's stumps), the camera "
+                "height and its distance behind the bowling mark.";
+    return a;
   }
   a.message = in.length_known
                   ? "Found the batter's stumps, but not the bowler's. Enter the camera height and its distance "

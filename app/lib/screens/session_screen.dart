@@ -22,6 +22,7 @@ class _SessionScreenState extends State<SessionScreen> {
   late final _fov = TextEditingController(text: widget.session.hfovDeg.toStringAsFixed(0));
   late String _ball = widget.session.ball;
   late String _batter = widget.session.batter;
+  late bool _bowlerStumps = widget.session.bowlerStumps;
 
   static String _cm(double? m) => m == null ? '' : (m * 100).toStringAsFixed(0);
 
@@ -38,6 +39,7 @@ class _SessionScreenState extends State<SessionScreen> {
     if (!_form.currentState!.validate()) return;
     final s = widget.session;
     final oldGeometry = [s.pitchLength, s.stumpHeight, s.stumpWidth, s.lengthMeasured ? 1.0 : 0.0];
+    final oldStumps = s.bowlerStumps;
     s.lengthMeasured = _length.text.trim().isNotEmpty;
     if (s.lengthMeasured) s.pitchLength = double.parse(_length.text);
     s.stumpHeight = double.parse(_stumpH.text) / 100;
@@ -51,12 +53,14 @@ class _SessionScreenState extends State<SessionScreen> {
     }
     s.ball = _ball;
     s.batter = _batter;
+    s.bowlerStumps = _bowlerStumps;
     await s.save();
     if (!mounted) return;
     final changed = oldGeometry[0] != s.pitchLength ||
         oldGeometry[1] != s.stumpHeight ||
         oldGeometry[2] != s.stumpWidth ||
-        oldGeometry[3] != (s.lengthMeasured ? 1.0 : 0.0);
+        oldGeometry[3] != (s.lengthMeasured ? 1.0 : 0.0) ||
+        oldStumps != s.bowlerStumps;
     Navigator.pop(context, changed);
   }
 
@@ -72,15 +76,29 @@ class _SessionScreenState extends State<SessionScreen> {
             Text('Measure with a tape. Accurate numbers matter most for LBW.',
                 style: Theme.of(context).textTheme.bodyMedium),
             const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text("Stumps at the bowler's end too"),
+              subtitle: Text(_bowlerStumps
+                  ? 'Two sets of stumps.'
+                  : "Only the batter's stumps: the bowler bowls from a mark. Measure the pitch length from that "
+                      'mark, and the camera height and distance below.'),
+              value: _bowlerStumps,
+              onChanged: (v) => setState(() => _bowlerStumps = v),
+            ),
             TextFormField(
               controller: _length,
-              decoration: const InputDecoration(
-                  labelText: 'Pitch length, stumps to stumps (m)',
-                  helperText: 'Full pitch: 20.12 m. Leave empty to measure it from the camera picture\n'
-                      "(the bowler's stumps must be in the picture; a tape measure is more exact).",
+              decoration: InputDecoration(
+                  labelText: _bowlerStumps
+                      ? 'Pitch length, stumps to stumps (m)'
+                      : "Pitch length, bowling mark to the batter's stumps (m)",
+                  helperText: _bowlerStumps
+                      ? 'Full pitch: 20.12 m. Leave empty to measure it from the camera picture\n'
+                          "(the bowler's stumps must be in the picture; a tape measure is more exact)."
+                      : 'Needed: with one set of stumps the picture cannot give the length.',
                   helperMaxLines: 3),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _optional(v, 5, 25),
+              validator: (v) => _bowlerStumps ? _optional(v, 5, 25) : _number(v, 5, 25),
             ),
             TextFormField(
               controller: _stumpH,
@@ -119,19 +137,25 @@ class _SessionScreenState extends State<SessionScreen> {
                 child: Text('Practice at empty stumps: no LBW, the app says whether each ball would hit the stumps.'),
               ),
             const SizedBox(height: 24),
-            Text("Only if the bowler's stumps are NOT visible in the camera picture:",
+            Text(
+                _bowlerStumps
+                    ? "Only if the bowler's stumps are NOT visible in the camera picture:"
+                    : 'Camera position (needed):',
                 style: Theme.of(context).textTheme.titleSmall),
             TextFormField(
               controller: _camH,
               decoration: const InputDecoration(labelText: 'Camera lens height above ground (cm)'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _optional(v, 20, 400),
+              validator: (v) => _bowlerStumps ? _optional(v, 20, 400) : _number(v, 20, 400),
             ),
             TextFormField(
               controller: _camD,
-              decoration: const InputDecoration(labelText: "Camera distance behind the bowler's stumps (cm)"),
+              decoration: InputDecoration(
+                  labelText: _bowlerStumps
+                      ? "Camera distance behind the bowler's stumps (cm)"
+                      : 'Camera distance behind the bowling mark (cm)'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _optional(v, 0, 1000),
+              validator: (v) => _bowlerStumps ? _optional(v, 0, 1000) : _number(v, 0, 1000),
             ),
             const SizedBox(height: 16),
             TextFormField(

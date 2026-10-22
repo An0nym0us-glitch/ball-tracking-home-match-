@@ -33,6 +33,8 @@ class Session {
   bool lengthMeasured = false;
   double stumpHeight = 0.71;
   double stumpWidth = 0.23; // outer edge to outer edge
+  /// false: stumps only at the batter's end (the bowler bowls from a mark).
+  bool bowlerStumps = true;
   String ball = 'tennis';
   String batter = 'right';
   double? cameraHeight; // only needed if the bowler's stumps are out of frame
@@ -60,7 +62,9 @@ class Session {
           'stump_height_m': stumpHeight,
           'stump_width_m': stumpWidth,
         },
-        'taps': taps,
+        // Without stumps at the bowler's end, points tapped there earlier do not count.
+        'taps': bowlerStumps ? taps : {for (final e in taps.entries) if (!e.key.startsWith('bowler')) e.key: e.value},
+        if (!bowlerStumps) 'bowler_stumps': false,
         'camera_hint': {'hfov_deg': hfovDeg, if (hfovSigmaDeg != null) 'hfov_sigma_deg': hfovSigmaDeg},
         if (cameraHeight != null) 'camera_height_m': cameraHeight,
         if (cameraDistance != null) 'camera_distance_m': cameraDistance,
@@ -71,6 +75,7 @@ class Session {
   Map<String, dynamic> toJson() => {
         'pitchLength': pitchLength,
         'lengthMeasured': lengthMeasured,
+        'bowlerStumps': bowlerStumps,
         'stumpHeight': stumpHeight,
         'stumpWidth': stumpWidth,
         'ball': ball,
@@ -91,6 +96,7 @@ class Session {
     s.pitchLength = d('pitchLength', s.pitchLength);
     // Settings saved before the length could be measured from the picture were typed in.
     s.lengthMeasured = (j['lengthMeasured'] as bool?) ?? j.containsKey('pitchLength');
+    s.bowlerStumps = (j['bowlerStumps'] as bool?) ?? true;
     s.stumpHeight = d('stumpHeight', s.stumpHeight);
     s.stumpWidth = d('stumpWidth', s.stumpWidth);
     s.ball = (j['ball'] as String?) ?? s.ball;

@@ -59,6 +59,7 @@ CalibrationInput calibrationInputFromJson(const json& j, bool with_image) {
   } else {
     in.pitch.length = 18.0;
   }
+  in.bowler_stumps = j.value("bowler_stumps", true);
   if (!with_image) return in;
   in.width = j.at("image").at("width").get<int>();
   in.height = j.at("image").at("height").get<int>();

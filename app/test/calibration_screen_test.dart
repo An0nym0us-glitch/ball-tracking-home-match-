@@ -92,4 +92,45 @@ void main() {
     final save = find.widgetWithText(FilledButton, 'Save calibration');
     expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
   }, skip: skip != null || pic == null || !pic.existsSync());
+
+  testWidgets("stumps only at the batter's end: four points and the measurements", (tester) async {
+    const w = 1280, h = 720;
+    final jpeg = PocketEyeNative.instance.yuv420ToJpeg(Uint8List(w * h)..fillRange(0, w * h, 120),
+        Uint8List(w * h ~/ 4)..fillRange(0, w * h ~/ 4, 128), Uint8List(w * h ~/ 4)..fillRange(0, w * h ~/ 4, 128),
+        w, h, w, w ~/ 2, 1)!;
+    final session = Session()
+      ..bowlerStumps = false
+      ..lengthMeasured = true
+      ..pitchLength = 16
+      ..cameraHeight = 1.2
+      ..cameraDistance = 1.5
+      ..stumpHeight = 0.66
+      ..stumpWidth = 0.21
+      // Points left over from a setup with two sets of stumps must not count.
+      ..taps = {'bowler_left_top': [600.0, 650.0]}
+      ..imageWidth = w
+      ..imageHeight = h;
+    await tester.binding.setSurfaceSize(const Size(1400, 1000));
+    await tester.pumpWidget(MaterialApp(home: CalibrationScreen(session: session, jpeg: jpeg, width: w, height: h)));
+    for (var i = 0; i < 50 && find.textContaining('Could not find').evaluate().isEmpty; ++i) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    final picture = find.byWidgetPredicate((wd) => wd is SizedBox && wd.width == w.toDouble());
+    Offset at(double u, double v) {
+      final r = tester.getRect(picture);
+      return r.topLeft + Offset(u * r.width / w, v * r.height / h);
+    }
+
+    for (final p in const [(632.0, 360.0), (632.0, 326.0), (646.0, 360.0), (646.0, 326.0)]) {
+      await tester.tapAt(at(p.$1, p.$2));
+      await tester.pump();
+    }
+    expect(find.text('Skip (not visible)'), findsNothing); // no bowler's-end steps
+    await tester.tap(find.text('Check'));
+    await tester.pump();
+    expect(find.textContaining('Calibration OK'), findsOneWidget);
+    final save = find.widgetWithText(FilledButton, 'Save calibration');
+    expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+  }, skip: skip != null);
 }

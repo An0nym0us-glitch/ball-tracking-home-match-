@@ -127,6 +127,11 @@ CalibrationResult calibrateFromTaps(const CalibrationInput& in) {
       return out;
     }
   }
+  if (!in.bowler_stumps && !(in.length_known && in.camera_height_m && in.camera_distance_m)) {
+    out.error = "with stumps only at the batter's end, enter the pitch length (bowling mark to the batter's "
+                "stumps), the camera height and its distance behind the bowling mark";
+    return out;
+  }
   if (pb.taps.size() < 6 && !(in.camera_height_m && in.camera_distance_m)) {
     out.error = "need at least 6 taps (the 4 batter-end stump points plus 2 more: bowler-end "
                 "stump tops/bottoms or pitch corners), or enter the camera height and its "

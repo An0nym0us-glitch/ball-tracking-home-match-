@@ -60,6 +60,10 @@ In the app, open **Pitch and match setup** and enter:
 If the bowler's stumps are not in the picture, the app also needs the pitch length, the camera height and its
 distance behind the bowler's stumps.
 
+**Stumps only at the batter's end** (the bowler bowls from a mark): switch off **Stumps at the bowler's end
+too**. Then measure the pitch length from the bowling mark to the batter's stumps, the camera height, and how far
+the camera is behind the bowling mark. The app only looks for the batter's stumps when calibrating.
+
 ## 4. Calibrate (the app finds the stumps)
 
 Calibrate **before the batter takes guard**, so that nothing stands in front of the stumps.
