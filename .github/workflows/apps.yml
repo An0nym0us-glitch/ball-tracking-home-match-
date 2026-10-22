@@ -134,8 +134,10 @@ jobs:
           name: PocketEye-android
           path: dist/*.apk
 
-  # Direct download links (easier on a phone than the zipped artifacts):
-  # Releases -> "PocketEye latest build", replaced on every successful build.
+  # Direct download links (easier on a phone than the zipped artifacts). Every
+  # successful build is a new release marked "latest", so these links always
+  # give the newest files (nothing is deleted or re-tagged):
+  #   https://github.com/<owner>/<repo>/releases/latest/download/PocketEye-arm64.apk
   release:
     needs: [windows, android]
     runs-on: ubuntu-latest
@@ -147,15 +149,14 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Publish the "latest-build" release
+      - name: Publish a release for this build
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           ls -la dist
-          gh release delete latest-build --yes --cleanup-tag || true
-          gh release create latest-build dist/* --prerelease --target "$GITHUB_SHA" \
-            --title "PocketEye latest build" \
+          gh release create "build-${GITHUB_RUN_NUMBER}" dist/* --target "$GITHUB_SHA" --latest \
+            --title "PocketEye build ${GITHUB_RUN_NUMBER}" \
             --notes "Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Not tested on real phones yet.
           - PocketEyeCamera.apk: camera app for old phones (Android 5+), streams to the laptop.
           - PocketEye-arm64.apk: phone-only app for newer phones (Android 7+). Use PocketEye-arm32.apk if arm64 will not install.

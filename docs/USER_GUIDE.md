@@ -13,7 +13,12 @@ There are three apps:
 
 The apps are built automatically on GitHub for every change.
 
-Easiest, including straight from the phone: open the repository on GitHub → **Releases** → **PocketEye latest build** and tap the file you need.
+Easiest, including straight from the phone: open the repository on GitHub → **Releases** → the newest
+**PocketEye build** (marked *Latest*) and tap the file you need. These links always give the newest build:
+
+- https://github.com/An0nym0us-glitch/ball-tracking-home-match-/releases/latest/download/PocketEye-arm64.apk
+- https://github.com/An0nym0us-glitch/ball-tracking-home-match-/releases/latest/download/PocketEyeCamera.apk
+- https://github.com/An0nym0us-glitch/ball-tracking-home-match-/releases/latest/download/PocketEye-windows.zip
 
 Or, signed in to GitHub:
 
