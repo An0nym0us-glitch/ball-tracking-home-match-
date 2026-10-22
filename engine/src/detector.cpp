@@ -46,6 +46,7 @@ Detector::Detector(const Camera& cam, const Pitch& pitch, double ball_radius, De
   const int y1 = std::min(cam.height & ~1, (r.y + r.height + 1) & ~1);
   roi_rect_ = cv::Rect(x0, y0e, std::max(2, x1 - x0), std::max(2, y1 - y0e));
   roi_crop_ = roi_(roi_rect_);
+  label_scale_ = static_cast<double>(cam.width) * cam.height > 1.5e6 ? 2 : 1;
 }
 
 void toYuvFrame(const cv::Mat& image, YuvFrame& out) {
@@ -109,29 +110,70 @@ bool Detector::push(const YuvFrame& frame, double t, std::vector<Candidate>& out
 
 int Detector::labelBlobs(double thr) {
   cv::threshold(diff_, bin_, thr, 255, cv::THRESH_BINARY);
-  cv::morphologyEx(bin_, bin_, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
-  return cv::connectedComponentsWithStats(bin_, labels_, stats_, centroids_, 8, CV_32S);
+  if (label_scale_ == 1) {
+    cv::morphologyEx(bin_, bin_, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
+    return cv::connectedComponentsWithStats(bin_, labels_, stats_, centroids_, 8, CV_32S);
+  }
+  // Large frames: label a half-size map (a 2x2 cell is set if any pixel is),
+  // which also closes 1-pixel gaps like the closing above, at a quarter of
+  // the cost. Blob positions and sizes are still measured at full resolution.
+  bin_half_.create((bin_.rows + 1) / 2, (bin_.cols + 1) / 2, CV_8U);
+  cv::parallel_for_(cv::Range(0, bin_half_.rows), [&](const cv::Range& r) {
+    for (int hy = r.start; hy < r.end; ++hy) {
+      const uchar* a = bin_.ptr<uchar>(2 * hy);
+      const uchar* b = bin_.ptr<uchar>(std::min(2 * hy + 1, bin_.rows - 1));
+      uchar* o = bin_half_.ptr<uchar>(hy);
+      for (int hx = 0; hx < bin_half_.cols; ++hx) {
+        const int x0 = 2 * hx, x1 = std::min(2 * hx + 1, bin_.cols - 1);
+        o[hx] = a[x0] | a[x1] | b[x0] | b[x1];
+      }
+    }
+  });
+  return cv::connectedComponentsWithStats(bin_half_, labels_, stats_, centroids_, 8, CV_32S);
 }
 
 // Works inside roi_rect_: blob coordinates are shifted back at the end.
 void Detector::detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame& next,
                       std::vector<Candidate>& out) {
-  cv::absdiff(cur.y, prev.y, d1_);
-  cv::absdiff(cur.y, next.y, d2_);
-  cv::min(d1_, d2_, diff_);
-  if (!cur.uv.empty() && !prev.uv.empty() && !next.uv.empty()) {
-    // Colour helps a lot: a yellow ball in front of white pads has little
-    // brightness contrast but a large U (blue-difference) change.
-    cv::absdiff(cur.uv, prev.uv, d1_);
-    cv::absdiff(cur.uv, next.uv, d2_);
-    cv::min(d1_, d2_, cdiff_);
-    cv::split(cdiff_, channels_);
-    cv::max(channels_[0], channels_[1], cdiff_);
-    cdiff_.convertTo(cdiff_, CV_8U, cfg_.chroma_gain);
-    cv::resize(cdiff_, cdiff_up_, diff_.size(), 0, 0, cv::INTER_LINEAR);
-    cv::max(diff_, cdiff_up_, diff_);
-  }
-  diff_.setTo(0, roi_crop_ == 0);
+  // Three-frame difference, one pass over the corridor split across the CPU
+  // cores (the plain OpenCV operations run on one core): brightness at full
+  // resolution, colour at half resolution (as the camera delivers it). Colour
+  // helps a lot: a yellow ball in front of white pads has little brightness
+  // contrast but a large U (blue-difference) change.
+  const bool colour = !cur.uv.empty() && !prev.uv.empty() && !next.uv.empty();
+  diff_.create(cur.y.size(), CV_8U);
+  uchar gain[256];
+  for (int v = 0; v < 256; ++v) gain[v] = cv::saturate_cast<uchar>(v * cfg_.chroma_gain);
+  const int rows = diff_.rows, cols = diff_.cols;
+  cv::parallel_for_(cv::Range(0, (rows + 1) / 2), [&](const cv::Range& r) {
+    std::vector<uchar> crow((cols + 1) / 2);
+    for (int hy = r.start; hy < r.end; ++hy) {
+      if (colour && hy < cur.uv.rows) {
+        const uchar *c = cur.uv.ptr<uchar>(hy), *p = prev.uv.ptr<uchar>(hy), *n = next.uv.ptr<uchar>(hy);
+        const int hc = std::min(cur.uv.cols, static_cast<int>(crow.size()));
+        for (int x = 0; x < hc; ++x) {
+          const int k = 2 * x;
+          const int du = std::min(std::abs(c[k] - p[k]), std::abs(c[k] - n[k]));
+          const int dv = std::min(std::abs(c[k + 1] - p[k + 1]), std::abs(c[k + 1] - n[k + 1]));
+          crow[x] = gain[std::max(du, dv)];
+        }
+      }
+      for (int y = 2 * hy; y < std::min(rows, 2 * hy + 2); ++y) {
+        const uchar *c = cur.y.ptr<uchar>(y), *p = prev.y.ptr<uchar>(y), *n = next.y.ptr<uchar>(y);
+        const uchar* m = roi_crop_.ptr<uchar>(y);
+        uchar* d = diff_.ptr<uchar>(y);
+        for (int x = 0; x < cols; ++x) {
+          const uchar a = c[x] > p[x] ? c[x] - p[x] : p[x] - c[x];
+          const uchar b = c[x] > n[x] ? c[x] - n[x] : n[x] - c[x];
+          d[x] = std::min(a, b);
+        }
+        if (colour) {
+          for (int x = 0; x < cols; ++x) d[x] = std::max(d[x], crow[x >> 1]);
+        }
+        for (int x = 0; x < cols; ++x) d[x] &= m[x];  // corridor mask (0 / 255)
+      }
+    }
+  });
 
   // Robust noise level from a subsampled histogram of the corridor.
   int hist[256] = {0};
@@ -160,39 +202,44 @@ void Detector::detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame&
   }
   if (n - 1 > cfg_.max_blobs) return;
 
+  // Labels may be at half resolution (label_scale_ 2): sizes are in label pixels.
+  const int ls = label_scale_;
   // Very large moving regions are people close to the camera (the bowler): small
   // blobs right next to them are fragments of their outline, not the ball. The
   // batter is far away and small, so blobs near the pads are kept.
   const double big_area = cfg_.big_region_frac * cam_.width * cam_.height;
-  big_mask_ = cv::Mat::zeros(diff_.size(), CV_8U);
+  big_mask_ = cv::Mat::zeros(labels_.size(), CV_8U);
   bool any_big = false;
   for (int i = 1; i < n; ++i) {
-    if (stats_.at<int>(i, cv::CC_STAT_AREA) > big_area) {
+    if (stats_.at<int>(i, cv::CC_STAT_AREA) * ls * ls > big_area) {
       big_mask_.setTo(255, labels_ == i);
       any_big = true;
     }
   }
   if (any_big) {
-    const int m = cfg_.big_region_margin_px;
+    const int m = std::max(1, cfg_.big_region_margin_px / ls);
     cv::dilate(big_mask_, big_mask_, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(2 * m + 1, 2 * m + 1)));
   }
 
   for (int i = 1; i < n; ++i) {
-    const int area = stats_.at<int>(i, cv::CC_STAT_AREA);
-    if (area < cfg_.min_area) continue;
-    const int bx = stats_.at<int>(i, cv::CC_STAT_LEFT);
-    const int by = stats_.at<int>(i, cv::CC_STAT_TOP);
-    const int bw = stats_.at<int>(i, cv::CC_STAT_WIDTH);
-    const int bh = stats_.at<int>(i, cv::CC_STAT_HEIGHT);
+    if (stats_.at<int>(i, cv::CC_STAT_AREA) * ls * ls < cfg_.min_area) continue;
+    const int bx = stats_.at<int>(i, cv::CC_STAT_LEFT) * ls;
+    const int by = stats_.at<int>(i, cv::CC_STAT_TOP) * ls;
+    const int bw = std::min(stats_.at<int>(i, cv::CC_STAT_WIDTH) * ls, diff_.cols - bx);
+    const int bh = std::min(stats_.at<int>(i, cv::CC_STAT_HEIGHT) * ls, diff_.rows - by);
     if (bw > cam_.width / 4 || bh > cam_.height / 4) continue;
 
-    // Difference-weighted moments over the component.
+    // Difference-weighted moments over the component (full resolution). With
+    // half-size labels, a cell's pixels count only if they changed themselves.
     double sw = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+    int area = 0;
+    const double keep = ls == 1 ? 0.0 : 0.5 * thr;
     for (int y = by; y < by + bh; ++y) {
-      const int* lab = labels_.ptr<int>(y);
+      const int* lab = labels_.ptr<int>(y / ls);
       const uchar* d = diff_.ptr<uchar>(y);
       for (int x = bx; x < bx + bw; ++x) {
-        if (lab[x] != i) continue;
+        if (lab[x / ls] != i || d[x] < keep) continue;
+        ++area;
         const double w = d[x] > 0 ? d[x] : 1.0;
         sw += w;
         sx += w * x;
@@ -202,7 +249,7 @@ void Detector::detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame&
         sxy += w * x * y;
       }
     }
-    if (sw <= 0) continue;
+    if (sw <= 0 || area < cfg_.min_area) continue;
     const double mx = sx / sw, my = sy / sw;
     const double cxx = sxx / sw - mx * mx + 1.0 / 12.0;
     const double cyy = syy / sw - my * my + 1.0 / 12.0;
@@ -217,8 +264,8 @@ void Detector::detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame&
     const double elong = std::sqrt(l_max / l_min);
     if (elong > cfg_.max_elongation) continue;
 
-    if (any_big && big_mask_.at<uchar>(std::clamp(static_cast<int>(my), 0, big_mask_.rows - 1),
-                                       std::clamp(static_cast<int>(mx), 0, big_mask_.cols - 1))) {
+    if (any_big && big_mask_.at<uchar>(std::clamp(static_cast<int>(my) / ls, 0, big_mask_.rows - 1),
+                                       std::clamp(static_cast<int>(mx) / ls, 0, big_mask_.cols - 1))) {
       continue;
     }
     const Vec2 uv(mx + roi_rect_.x, my + roi_rect_.y);

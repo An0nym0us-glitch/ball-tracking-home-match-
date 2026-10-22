@@ -2,9 +2,9 @@ name: engine
 
 on:
   push:
-    paths: ["engine/**", "tools/**", ".github/workflows/engine.yml"]
+    paths: ["engine/**", "tools/**", "app/lib/**", "app/test/**", ".github/workflows/engine.yml"]
   pull_request:
-    paths: ["engine/**", "tools/**", ".github/workflows/engine.yml"]
+    paths: ["engine/**", "tools/**", "app/lib/**", "app/test/**", ".github/workflows/engine.yml"]
 
 jobs:
   build-test-eval:
@@ -39,6 +39,23 @@ jobs:
         run: |
           python3 tools/eval/run_eval.py --generate 12 --seed 202 --scenario plumb \
             --work out/eval_plumb --report out/eval_plumb.md --gate
+
+      # The app's screens and workers against the engine just built (the
+      # calibration screen, live mode, the worker isolates).
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+
+      - name: App tests with the engine
+        working-directory: app
+        env:
+          POCKETEYE_LIB: ${{ github.workspace }}/engine/build/libpocketeye_c.so
+          POCKETEYE_SCENE: ${{ github.workspace }}/out/eval_random/scene_0000
+        run: |
+          flutter pub get
+          flutter test
 
       - name: Upload reports
         if: always()

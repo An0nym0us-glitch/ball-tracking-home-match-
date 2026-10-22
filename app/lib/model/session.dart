@@ -40,6 +40,8 @@ class Session {
   double hfovDeg = 65; // phone field of view (hint)
   /// How well hfovDeg is known (degrees): set from the phone's lens data; null = a rough guess.
   double? hfovSigmaDeg;
+  /// Phone-only mode camera: '1080p' (sharper, needs a fast phone) or '720p'.
+  String phoneVideo = '1080p';
   int imageWidth = 0;
   int imageHeight = 0;
   Map<String, List<double>> taps = {};
@@ -77,6 +79,7 @@ class Session {
         'cameraDistance': cameraDistance,
         'hfovDeg': hfovDeg,
         'hfovSigmaDeg': hfovSigmaDeg,
+        'phoneVideo': phoneVideo,
         'imageWidth': imageWidth,
         'imageHeight': imageHeight,
         'taps': taps,
@@ -96,6 +99,7 @@ class Session {
     s.cameraDistance = (j['cameraDistance'] as num?)?.toDouble();
     s.hfovDeg = d('hfovDeg', s.hfovDeg);
     s.hfovSigmaDeg = (j['hfovSigmaDeg'] as num?)?.toDouble();
+    s.phoneVideo = (j['phoneVideo'] as String?) ?? s.phoneVideo;
     s.imageWidth = (j['imageWidth'] as num?)?.toInt() ?? 0;
     s.imageHeight = (j['imageHeight'] as num?)?.toInt() ?? 0;
     final taps = j['taps'] as Map<String, dynamic>? ?? {};

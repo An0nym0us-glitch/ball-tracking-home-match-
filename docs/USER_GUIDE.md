@@ -80,13 +80,17 @@ Every mode opens the same calibration screen on a still picture from the camera:
 
 On first launch the app runs a short speed test and suggests a mode:
 
-- "phone-only 60 fps" or "phone-only 30 fps": this phone is fast enough;
+- "phone-only 1080p 60 fps" or "phone-only 30 fps": this phone is fast enough;
 - "laptop": this phone is too slow, so use the phone + laptop mode.
 
 **Re-test** repeats it. Then:
 
 1. **Phone-only mode** → put the phone on the stand → **Calibrate** (the app finds the stumps; you check).
 2. Bowl. Cards appear on the phone, and tapping one opens the replay.
+
+Camera size: **1080p** (default, sharper) or **720p**. The app asks the camera for 60 fps; if the phone cannot do
+60 fps at 1080p it falls back to 720p 60 fps, then 30 fps. The screen shows what the camera really delivers
+(for example "1920x1080 at 60 fps"). Changing the size needs a new calibration.
 
 After calibrating, the app fixes the camera's brightness and focus on the batter's stumps (otherwise the picture
 changes every time the bowler runs past, which hides the ball). If the light changes a lot, calibrate again.

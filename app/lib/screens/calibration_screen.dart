@@ -20,6 +20,12 @@ class CalibrationScreen extends StatefulWidget {
   State<CalibrationScreen> createState() => _CalibrationScreenState();
 }
 
+/// Runs the stump search in a worker isolate. A top-level function on purpose:
+/// a closure created inside the State would carry the State (and its zone)
+/// along, which cannot be sent to another isolate.
+Future<Map<String, dynamic>> _autoCalibrateInBackground(String configJson, Uint8List jpeg) =>
+    Isolate.run(() => PocketEyeNative.instance.autoCalibrate(configJson, jpeg));
+
 class _CalibrationScreenState extends State<CalibrationScreen> {
   final _viewer = TransformationController();
   late final Map<String, List<double>> _taps =
@@ -30,8 +36,15 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   bool _autoRunning = false;
   Map<String, dynamic>? _auto; // automatic result
   bool _autoUsed = false; // the current points came from the automatic search
-  double? _typedLength; // pitch length entered here
+  bool _userTapped = false; // the user started tapping: an automatic result arriving later is not applied
+  double? _typedLength; // measurements entered here (m)
+  double? _typedCamHeight;
+  double? _typedCamDistance;
   final _lengthCtl = TextEditingController();
+  late final _camHCtl = TextEditingController(text: _cm(widget.session.cameraHeight));
+  late final _camDCtl = TextEditingController(text: _cm(widget.session.cameraDistance));
+
+  static String _cm(double? m) => m == null ? '' : (m * 100).toStringAsFixed(0);
 
   /// Uncertainty above which a pitch length from the picture is not used without asking (m).
   static const _lengthSigmaOk = 0.4;
@@ -40,16 +53,16 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   void initState() {
     super.initState();
     _step = _firstMissing();
+    if (widget.session.lengthMeasured) _lengthCtl.text = widget.session.pitchLength.toString();
     _findStumps();
   }
 
   Future<void> _findStumps() async {
+    _userTapped = false;
     setState(() => _autoRunning = true);
-    final cfg = widget.session.toConfigJson();
-    final jpeg = widget.jpeg;
     Map<String, dynamic> r;
     try {
-      r = await Isolate.run(() => PocketEyeNative.instance.autoCalibrate(cfg, jpeg));
+      r = await _autoCalibrateInBackground(widget.session.toConfigJson(), widget.jpeg);
     } catch (e) {
       r = {'ok': false, 'message': 'Automatic calibration failed: $e'};
     }
@@ -58,7 +71,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
       _autoRunning = false;
       _auto = r;
       final taps = r['taps'] as Map<String, dynamic>? ?? {};
-      if (r['batter_found'] == true && taps.isNotEmpty) {
+      if (r['batter_found'] == true && taps.isNotEmpty && !_userTapped) {
         _taps
           ..clear()
           ..addAll(taps.map((k, v) => MapEntry(k, [for (final x in v as List) (x as num).toDouble()])));
@@ -80,22 +93,49 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
     });
   }
 
+  int get _bowlerTaps => _taps.keys.where((k) => k.startsWith('bowler')).length;
+
+  /// Camera height and distance are needed when the bowler's stumps are not in the picture.
+  bool get _needCamera =>
+      _bowlerTaps < 2 &&
+      (widget.session.cameraHeight == null || widget.session.cameraDistance == null) &&
+      (_typedCamHeight == null || _typedCamDistance == null);
+
   /// The pitch length is known well enough: typed in (setup or here), or
   /// measured from the picture precisely.
   bool get _lengthOk {
     if (widget.session.lengthMeasured || _typedLength != null) return true;
+    if (_bowlerTaps < 2) return false; // only the bowler's stumps let the picture give the length
     final sigma = _check?['pitch_length_sigma_m'];
     return _check?['ok'] == true && sigma is num && sigma <= _lengthSigmaOk;
   }
 
-  void _useTypedLength() {
-    final v = double.tryParse(_lengthCtl.text.replaceAll(',', '.'));
-    if (v == null || v < 5 || v > 25) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Enter the pitch length in metres (5 to 25)')));
+  double? _num(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
+
+  void _useMeasurements() {
+    String? problem;
+    if (!_lengthOk || _typedLength != null || _lengthCtl.text.trim().isNotEmpty) {
+      final v = _num(_lengthCtl);
+      if (v == null || v < 5 || v > 25) {
+        problem = 'Enter the pitch length in metres (5 to 25)';
+      } else {
+        _typedLength = v;
+      }
+    }
+    if (problem == null && (_needCamera || _typedCamHeight != null)) {
+      final h = _num(_camHCtl), d = _num(_camDCtl);
+      if (h == null || h < 20 || h > 400 || d == null || d < 0 || d > 1000) {
+        problem = 'Enter the camera height (20-400 cm) and its distance behind the stumps (0-1000 cm)';
+      } else {
+        _typedCamHeight = h / 100;
+        _typedCamDistance = d / 100;
+      }
+    }
+    if (problem != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(problem)));
       return;
     }
-    setState(() => _typedLength = v);
+    setState(() {});
     _runCheck();
   }
 
@@ -105,8 +145,14 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   }
 
   void _tap(TapUpDetails d) {
-    if (_step >= tapSpecs.length) return;
+    _userTapped = true;
     setState(() {
+      // A tap on an automatic result or a finished set starts the tapping over.
+      if (_autoUsed || _step >= tapSpecs.length) {
+        _taps.clear();
+        _autoUsed = false;
+        _step = 0;
+      }
       _taps[tapSpecs[_step].name] = [d.localPosition.dx, d.localPosition.dy];
       _check = null;
       _step = _nextStep(_step);
@@ -144,6 +190,10 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
       s.pitchLength = _typedLength!;
       s.lengthMeasured = true;
     }
+    if (_typedCamHeight != null && _typedCamDistance != null) {
+      s.cameraHeight = _typedCamHeight;
+      s.cameraDistance = _typedCamDistance;
+    }
     return s;
   }
 
@@ -159,6 +209,8 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
     w.imageWidth = s.imageWidth;
     w.imageHeight = s.imageHeight;
     w.lengthMeasured = s.lengthMeasured;
+    w.cameraHeight = s.cameraHeight;
+    w.cameraDistance = s.cameraDistance;
     w.pitchLength = s.lengthMeasured
         ? s.pitchLength
         : ((_check?['pitch_length_m'] as num?)?.toDouble() ?? s.pitchLength); // measured from the picture
@@ -183,18 +235,20 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
     final sigma = (_check?['pitch_length_sigma_m'] as num?)?.toDouble();
     final estLength = (_check?['pitch_length_m'] as num?)?.toDouble();
     // Ask for the length when the picture cannot give it (precisely enough).
-    final askLength = lengthFromPicture && (_check != null || (_auto != null && !_autoRunning)) && !_lengthOk;
+    final pointsReady = requiredDone && !_autoRunning && _step >= tapSpecs.length;
+    final askLength = lengthFromPicture && pointsReady && !_lengthOk;
+    final askCamera = pointsReady && _needCamera;
     final String banner;
     if (_autoRunning) {
       banner = 'Looking for the stumps...';
     } else if (_autoUsed) {
       banner = 'Stumps found automatically. Check that the yellow lines sit on the stumps, then Save. '
-          "If they don't, press 'Tap them myself'.";
+          "If they don't, tap the picture (or 'Tap them myself') to place the points yourself.";
     } else if (_step < tapSpecs.length) {
       banner = '${_auto != null && _auto!['batter_found'] != true ? '${_auto!['message']}\n' : ''}'
           'Tap: ${tapSpecs[_step].label}\nPinch / scroll to zoom in. Tap the centre of the stump.';
     } else {
-      banner = 'All points done. Press Check.';
+      banner = 'All points done. Press Check. (Tapping the picture starts the points again.)';
     }
     final warnings = [for (final w in (_check?['warnings'] as List? ?? [])) w.toString()];
     return Scaffold(
@@ -217,7 +271,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                 maxScale: 20,
                 boundaryMargin: const EdgeInsets.all(200),
                 child: GestureDetector(
-                  onTapUp: _autoRunning || _autoUsed ? null : _tap,
+                  onTapUp: _tap,
                   child: SizedBox(
                     width: widget.width.toDouble(),
                     height: widget.height.toDouble(),
@@ -248,27 +302,49 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                     : 'Calibration failed: ${_check!['error']}',
               ),
             ),
-          if (askLength)
+          if (askLength || askCamera)
             Container(
               width: double.infinity,
               color: Colors.orange.shade50,
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-              child: Row(children: [
-                Expanded(
-                  child: TextField(
-                    controller: _lengthCtl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: 'Pitch length, stumps to stumps (m)',
-                      helperText: estLength != null
-                          ? 'The picture is not exact enough for this. Measure it with a tape if you can.'
-                          : "The bowler's stumps are not in the picture: enter the pitch length.",
-                      helperMaxLines: 2,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  askCamera
+                      ? "The bowler's stumps are not in the picture, so the app needs three tape measurements "
+                          "(or tap the bowler's stump tops if you can see them)."
+                      : estLength != null
+                          ? 'The pitch length from the picture is not exact enough. Measure it with a tape.'
+                          : 'Enter the pitch length.',
+                ),
+                Wrap(spacing: 12, crossAxisAlignment: WrapCrossAlignment.end, children: [
+                  SizedBox(
+                    width: 200,
+                    child: TextField(
+                      controller: _lengthCtl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'Pitch length, stumps to stumps (m)'),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.tonal(onPressed: _useTypedLength, child: const Text('Use')),
+                  if (askCamera) ...[
+                    SizedBox(
+                      width: 200,
+                      child: TextField(
+                        controller: _camHCtl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: 'Camera lens height (cm)'),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 240,
+                      child: TextField(
+                        controller: _camDCtl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: "Camera behind bowler's stumps (cm)"),
+                      ),
+                    ),
+                  ],
+                  FilledButton.tonal(onPressed: _useMeasurements, child: const Text('Use')),
+                ]),
               ]),
             ),
           Padding(

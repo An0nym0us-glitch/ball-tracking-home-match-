@@ -30,6 +30,9 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
   String _status = 'Starting camera...';
   int _w = 0, _h = 0;
   int _received = 0, _dropped = 0;
+  double _cameraFps = 0; // frames the camera actually delivers per second
+  double _fpsT0 = 0;
+  int _fpsCount = 0;
   double _engineMs = 0;
   bool _wantSnapshot = false;
   final _deliveries = <Delivery>[];
@@ -47,29 +50,71 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     try {
-      final cams = await availableCameras();
-      final back = cams.firstWhere((c) => c.lensDirection == CameraLensDirection.back, orElse: () => cams.first);
-      CameraController cam;
-      try {
-        cam = CameraController(back, ResolutionPreset.high,
-            enableAudio: false, fps: widget.fps, imageFormatGroup: ImageFormatGroup.yuv420);
-        await cam.initialize();
-      } catch (_) {
-        // Not every phone offers 60 fps at 720p: fall back to the default rate.
-        cam = CameraController(back, ResolutionPreset.high,
-            enableAudio: false, imageFormatGroup: ImageFormatGroup.yuv420);
-        await cam.initialize();
-      }
       final worker = await PhoneEngineWorker.start();
       _sub = worker.events.listen(_onEvent);
-      setState(() {
-        _cam = cam;
-        _worker = worker;
-        _status = 'Camera ready';
-      });
-      await cam.startImageStream(_onImage);
+      _worker = worker;
+      await _startCamera();
     } catch (e) {
       setState(() => _status = 'Camera error: $e');
+    }
+  }
+
+  /// Opens the back camera at the chosen size, at 60 fps if the phone allows it
+  /// at that size, else the next best: 1080p60, 720p60, 1080p30, 720p30.
+  Future<void> _startCamera() async {
+    final cams = await availableCameras();
+    final back = cams.firstWhere((c) => c.lensDirection == CameraLensDirection.back, orElse: () => cams.first);
+    final sizes = s.phoneVideo == '720p'
+        ? [ResolutionPreset.high]
+        : [ResolutionPreset.veryHigh, ResolutionPreset.high];
+    final attempts = <(ResolutionPreset, int?)>[
+      for (final r in sizes) (r, widget.fps),
+      for (final r in sizes) (r, null),
+    ];
+    CameraController? cam;
+    Object? lastError;
+    for (final (preset, fps) in attempts) {
+      final c = CameraController(back, preset, enableAudio: false, fps: fps, imageFormatGroup: ImageFormatGroup.yuv420);
+      try {
+        await c.initialize();
+        cam = c;
+        break;
+      } catch (e) {
+        lastError = e;
+        await c.dispose();
+      }
+    }
+    if (cam == null) throw lastError ?? StateError('no camera');
+    if (!mounted) {
+      await cam.dispose();
+      return;
+    }
+    setState(() {
+      _cam = cam;
+      _status = 'Camera ready';
+    });
+    await cam.startImageStream(_onImage);
+  }
+
+  Future<void> _switchVideo(String v) async {
+    if (v == s.phoneVideo) return;
+    s.phoneVideo = v;
+    await s.save();
+    final old = _cam;
+    setState(() {
+      _cam = null;
+      _engineOn = false;
+      _w = _h = 0;
+      _status = 'Switching camera...';
+    });
+    try {
+      await old?.stopImageStream();
+    } catch (_) {}
+    await old?.dispose();
+    try {
+      await _startCamera();
+    } catch (e) {
+      if (mounted) setState(() => _status = 'Camera error: $e');
     }
   }
 
@@ -77,6 +122,11 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
     // Arrival time on the phone: a few ms of jitter, see docs/accuracy.md.
     final t = _clock.elapsedMicroseconds / 1e6;
     _received++;
+    if (++_fpsCount >= 30) {
+      if (_fpsT0 > 0 && t > _fpsT0) _cameraFps = _fpsCount / (t - _fpsT0);
+      _fpsT0 = t;
+      _fpsCount = 0;
+    }
     if (img.planes.length < 3) return;
     final y = img.planes[0], u = img.planes[1], v = img.planes[2];
     if (_w != img.width || _h != img.height) {
@@ -211,7 +261,19 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(_status, style: t.titleSmall),
         ),
-        Text('${_w}x$_h  |  engine ${_engineMs.toStringAsFixed(1)} ms/frame  |  frames skipped ${dropPct.toStringAsFixed(0)}%',
+        Row(children: [
+          const Text('Camera: '),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: '1080p', label: Text('1080p')),
+              ButtonSegment(value: '720p', label: Text('720p')),
+            ],
+            selected: {s.phoneVideo},
+            onSelectionChanged: (v) => _switchVideo(v.first),
+          ),
+        ]),
+        Text('${_w}x$_h at ${_cameraFps.toStringAsFixed(0)} fps  |  engine ${_engineMs.toStringAsFixed(1)} ms/frame  |  '
+            'frames skipped ${dropPct.toStringAsFixed(0)}%',
             style: t.bodySmall),
         if (_engineStats.isNotEmpty)
           Text(

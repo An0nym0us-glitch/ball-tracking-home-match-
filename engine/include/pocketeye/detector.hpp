@@ -73,9 +73,9 @@ class Detector {
   double times_[3] = {0, 0, 0};
   int count_ = 0;
   YuvFrame converted_;
-  cv::Mat d1_, d2_, diff_, cdiff_, cdiff_up_, bin_, labels_, stats_, centroids_;
+  cv::Mat diff_, bin_, bin_half_, labels_, stats_, centroids_;
+  int label_scale_ = 1;  // 2: blobs are labelled at half resolution (large frames)
   cv::Mat big_mask_;
-  cv::Mat channels_[2];
 };
 
 }  // namespace pe

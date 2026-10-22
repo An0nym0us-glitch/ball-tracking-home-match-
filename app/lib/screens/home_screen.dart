@@ -19,6 +19,10 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+/// Top-level so that the isolate closure does not capture the State.
+Future<Map<String, dynamic>> _benchmarkInBackground() =>
+    Isolate.run(() => PocketEyeNative.instance.benchmark(width: 1920, height: 1080, frames: 150));
+
 class _HomeScreenState extends State<HomeScreen> {
   Session? _session;
   Map<String, dynamic>? _bench;
@@ -52,7 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
       File('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}benchmark.json');
 
   /// Bump when the speed test changes, so saved results from older versions are re-measured.
-  static const _benchVersion = 2;
+  static const _benchVersion = 3; // 3: measured at 1080p
 
   Future<Map<String, dynamic>?> _loadBenchmark() async {
     final f = await _benchFile();
@@ -64,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// First launch on a phone: time the engine and suggest a mode.
   Future<void> _runBenchmark() async {
     setState(() => _benchRunning = true);
-    final r = await Isolate.run(() => PocketEyeNative.instance.benchmark(width: 1280, height: 720, frames: 150));
+    final r = await _benchmarkInBackground();
     r['bench_version'] = _benchVersion;
     final f = await _benchFile();
     await f.parent.create(recursive: true);
@@ -154,8 +158,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final ms = ((b['p90_ms'] ?? b['engine_ms_per_frame']) as num?)?.toDouble() ?? 0;
     final sug = b['suggestion'] as String? ?? 'laptop';
     final text = switch (sug) {
-      'phone_only_60fps' => 'Fast phone: phone-only mode at 60 fps is recommended.',
-      'phone_only_30fps' => 'Medium phone: phone-only mode works at 30 fps. Laptop mode is more accurate.',
+      'phone_only_60fps' => 'Fast phone: phone-only mode at 1080p 60 fps is recommended.',
+      'phone_only_30fps' => 'Medium phone: phone-only mode works at 30 fps (or 720p). Laptop mode is more accurate.',
       _ => 'This phone is too slow for phone-only mode. Use phone + laptop mode.',
     };
     return Card(
@@ -163,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListTile(
         leading: const Icon(Icons.speed),
         title: Text(text),
-        subtitle: Text('Speed test: ${ms.toStringAsFixed(1)} ms per 720p frame'),
+        subtitle: Text('Speed test: ${ms.toStringAsFixed(1)} ms per 1080p frame (60 fps needs under 12)'),
         trailing: TextButton(onPressed: _benchRunning ? null : _runBenchmark, child: const Text('Re-test')),
       ),
     );

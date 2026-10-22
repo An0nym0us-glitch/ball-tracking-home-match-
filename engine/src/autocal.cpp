@@ -605,7 +605,7 @@ AutoCalibration autoCalibrate(const cv::Mat& image, const CalibrationInput& in) 
                   ? "Found the batter's stumps, but not the bowler's. Enter the camera height and its distance "
                     "behind the bowler's stumps, or tap the bowler's stump tops."
                   : "Found the batter's stumps, but not the bowler's, so the pitch length can't be measured. "
-                    "Enter the pitch length.";
+                    "Enter the pitch length, the camera height and its distance behind the bowler's stumps.";
   return a;
 }
 
