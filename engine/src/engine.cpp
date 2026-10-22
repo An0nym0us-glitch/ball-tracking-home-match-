@@ -161,9 +161,28 @@ void Engine::collectDone() {
 }
 
 namespace {
+// True if a's flight (before the impact) passes through b's first point: b
+// is then the rest of the same ball (after the bounce, or rolling away after
+// the pad) taken for a delivery of its own.
+bool continues(const DeliveryResult& a, const DeliveryResult& b) {
+  if (b.observations.empty() || !(a.t_first < b.t_first)) return false;
+  const Observation& first = b.observations.front();
+  for (size_t i = 0; i < a.observations.size() && i < a.labels.size(); ++i) {
+    const Observation& o = a.observations[i];
+    if ((a.labels[i] == kPreBounce || a.labels[i] == kPostBounce) && std::abs(o.t - first.t) < 1e-6 &&
+        (o.uv - first.uv).norm() < 2.0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Several tracks can follow the same ball (one may have started on noise).
-// Prefer the one that explains more of the flight, then the cleaner fit.
+// Prefer the one that the other continues, then the one that explains more of
+// the flight, then the cleaner fit.
 bool better(const DeliveryResult& a, const DeliveryResult& b) {
+  if (continues(a, b)) return true;
+  if (continues(b, a)) return false;
   const int na = a.n_pre + a.n_post, nb = b.n_pre + b.n_post;
   if (na != nb) return na > nb;
   return a.rms_px < b.rms_px;

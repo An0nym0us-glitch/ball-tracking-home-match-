@@ -153,7 +153,38 @@ void Tracker::search(bool all) {
       pts.push_back({frames_[f].frame, frames_[f].t, cd.uv, cd.radius_px, cd.strength});
       frames_[f].used[c] = true;
     }
+    stitch(pts);
+    recent_.push_back(pts);
     finished_.push_back(std::move(pts));
+  }
+  while (!recent_.empty() && recent_.front().back().t < t_now_ - window_s_) recent_.pop_front();
+}
+
+// The path search can give the ball's flight to two paths: one ends just
+// before the bounce, and the other carries on from there after starting on
+// other movement (the bowler). Each alone may be too short or start wrongly,
+// so also hand out the join: the first path, then the second from the point
+// that continues it.
+void Tracker::stitch(const std::vector<TrackPoint>& track) {
+  auto join = [&](const std::vector<TrackPoint>& a, const std::vector<TrackPoint>& b) {
+    if (a.size() < 2) return;
+    const TrackPoint& end = a.back();
+    const double last_step = (end.uv - a[a.size() - 2].uv).norm() / (end.frame - a[a.size() - 2].frame);
+    for (size_t i = 0; i < b.size(); ++i) {
+      const int gap = b[i].frame - end.frame;
+      if (gap < 1) continue;
+      if (gap > cfg_.max_gap) break;
+      if ((b[i].uv - end.uv).norm() > (1.5 * last_step + 10.0) * gap) continue;
+      if (b.end() - (b.begin() + static_cast<long>(i)) < 3) return;
+      std::vector<TrackPoint> joined = a;
+      joined.insert(joined.end(), b.begin() + static_cast<long>(i), b.end());
+      finished_.push_back(std::move(joined));
+      return;
+    }
+  };
+  for (const auto& other : recent_) {
+    join(other, track);
+    join(track, other);
   }
 }
 

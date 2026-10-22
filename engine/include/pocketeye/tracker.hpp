@@ -62,6 +62,7 @@ class Tracker {
 
  private:
   void search(bool all);
+  void stitch(const std::vector<TrackPoint>& track);
   int width_;
   PathConfig cfg_;
   double window_s_;
@@ -70,6 +71,7 @@ class Tracker {
   int since_search_ = 0;
   std::deque<FrameCandidates> frames_;
   std::vector<std::vector<TrackPoint>> finished_;
+  std::deque<std::vector<TrackPoint>> recent_;  // handed out within the window, for stitch()
 };
 
 }  // namespace pe

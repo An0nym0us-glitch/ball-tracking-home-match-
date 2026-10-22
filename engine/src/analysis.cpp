@@ -360,9 +360,9 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
     const int n_in = static_cast<int>(obs_in.size());
     const std::vector<int> kinks = kinkIndices(obs_in);
     std::vector<int> starts;
+    // The turn point itself can be a stray detection: also start just after it.
     for (int k : kinks) {
-      starts.push_back(k - 1);
-      starts.push_back(k);
+      for (int s0 : {k - 1, k, k + 1}) starts.push_back(s0);
     }
     // The hand can also blend smoothly into the ball: also try regular steps
     // over the first ~1.2 s of the track (more points at 60 fps).
