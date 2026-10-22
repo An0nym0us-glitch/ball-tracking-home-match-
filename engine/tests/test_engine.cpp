@@ -193,3 +193,22 @@ TEST(LiveFollower, IgnoresFlickerAndFollowsTheMovingBall) {
   for (int i = 90; i < 100; ++i) f.update(i / fps, {});
   EXPECT_FALSE(f.state(100 / fps).visible);
 }
+
+TEST(LiveFollower, IgnoresMovementAwayFromTheStumps) {
+  // The batter's stumps at (640, 330). Something swinging up and away (the
+  // bowler's arm) is not taken for the ball; the ball heading for the stumps is.
+  LiveFollower f(1280, Vec2(640, 330));
+  const double fps = 30;
+  for (int k = 0; k < 10; ++k) {
+    Candidate arm;
+    arm.uv = Vec2(780 + 6 * k, 300 - 20 * k);
+    f.update(k / fps, {arm});
+    EXPECT_FALSE(f.state(k / fps).visible) << k;
+  }
+  for (int k = 0; k < 10; ++k) {
+    Candidate ball;
+    ball.uv = Vec2(700 - 4 * k, 60 + 20 * k);
+    f.update((10 + k) / fps, {ball});
+    if (k >= 3) EXPECT_TRUE(f.state((10 + k) / fps).visible) << k;
+  }
+}

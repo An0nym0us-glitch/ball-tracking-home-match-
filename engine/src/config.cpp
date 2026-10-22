@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "pocketeye/config.hpp"
 
 #include <stdexcept>
@@ -99,6 +100,8 @@ LoadedConfig loadConfig(const json& j) {
   a.release_offset_m = j.value("release_offset_m", 0.8);
   a.sigma_px = j.value("sigma_px", 1.0);
   a.mc_samples = j.value("mc_samples", 300);
+  // How sure a definite LBW / stumps verdict must be; below that it is umpire's call.
+  a.decision_probability = std::clamp(j.value("decision_probability", 0.9), 0.6, 0.99);
   // "jpeg_stream": every frame arrives as its own JPEG (old-phone camera app).
   const std::string source = j.value("source", "camera");
   if (source != "camera" && source != "jpeg_stream") {

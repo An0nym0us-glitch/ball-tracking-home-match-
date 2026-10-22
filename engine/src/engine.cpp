@@ -17,7 +17,8 @@ Engine::Engine(const EngineConfig& cfg)
     : cfg_(cfg),
       detector_(cfg.analysis.camera, cfg.analysis.pitch, cfg.analysis.ball.radius, cfg.detector),
       tracker_(cfg.analysis.camera.width, cfg.tracker),
-      follower_(cfg.analysis.camera.width) {
+      follower_(cfg.analysis.camera.width,
+                cfg.analysis.camera.project(Vec3(0.0, cfg.analysis.pitch.length, 0.5 * cfg.analysis.pitch.stump_height))) {
   if (cfg_.async_analysis) thread_ = std::thread(&Engine::worker, this);
 }
 

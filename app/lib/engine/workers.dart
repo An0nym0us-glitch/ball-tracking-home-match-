@@ -211,6 +211,7 @@ class _ServerState {
   DateTime lastPreview = DateTime(0);
   DateTime lastStats = DateTime(0);
   bool debugOn = false;
+  String? lockedTaps; // calibration the phone last locked brightness and focus for
 
   int get nowUs => _sw.elapsedMicroseconds;
 
@@ -292,6 +293,7 @@ class _ServerState {
           sock.write('${jsonEncode({'type': 'hello_ok'})}\n');
           status('Phone connected: ${hello['device'] ?? ''} ${w}x$h @ ${hello['fps']} fps',
               connected: true, hfov: (hello['hfov'] as num?)?.toDouble());
+          lockedTaps = null; // a (re)connected phone meters again
           if (engine != null) _sendLock();
         }
         for (var m = parser.next(); m != null; m = parser.next()) {
@@ -322,6 +324,10 @@ class _ServerState {
     var x = 0.5, y = 0.5;
     try {
       final taps = (jsonDecode(cfg) as Map<String, dynamic>)['taps'] as Map<String, dynamic>?;
+      // Other settings (who is batting) do not change the picture: no new metering.
+      final key = jsonEncode(taps);
+      if (key == lockedTaps) return;
+      lockedTaps = key;
       final a = taps?['batter_left_base'] as List?, b = taps?['batter_right_top'] as List?;
       if (a != null && b != null) {
         x = (((a[0] as num) + (b[0] as num)) / 2 / w!).clamp(0.0, 1.0);

@@ -52,6 +52,14 @@ void LiveFollower::advance(Track& tr, double t, const Candidate& c) {
   while (tr.trail.size() > kTrail) tr.trail.pop_front();
 }
 
+bool LiveFollower::headsForTarget(const Track& tr) const {
+  if (!std::isfinite(target_.x())) return true;
+  const Vec2 to = target_ - tr.p;
+  if (to.norm() < 0.05 * image_width_) return true;  // already there: any direction (bounce, rebound)
+  const double sp = tr.v.norm();
+  return sp > 0 && tr.v.dot(to) / (sp * to.norm()) > 0.5;  // within 60 degrees
+}
+
 void LiveFollower::update(double t, const std::vector<Candidate>& cands) {
   std::vector<bool> used(cands.size(), false);
   if (active_) {
@@ -76,7 +84,7 @@ void LiveFollower::update(double t, const std::vector<Candidate>& cands) {
     if (k < 0) continue;  // a candidate that is not followed up is dropped
     advance(tr, t, cands[k]);
     used[k] = true;
-    if (tr.hits >= kConfirmHits && (!active_ || ball_.misses > 0)) {
+    if (tr.hits >= kConfirmHits && (!active_ || ball_.misses > 0) && headsForTarget(tr)) {
       ball_ = tr;
       active_ = true;
     } else {

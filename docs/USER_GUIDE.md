@@ -52,7 +52,12 @@ In the app, open **Pitch and match setup** and enter:
 - the stump height (ground to the top of the stumps) and width (outer edge to outer edge), measured with a tape;
 - the ball type (tennis/tape, plastic, rubber, leather) and the batter: right-handed, left-handed, or
   **No batter** for bowling practice at empty stumps (then there is no LBW; each ball shows its speed, line,
-  length and whether it would hit the stumps, or "BOWLED" when it hits them);
+  length and whether it would hit the stumps, or "BOWLED" when it hits them). Choose right/left-handed only when
+  someone is batting: with nobody there, a ball that hits the stumps can come out as an LBW decision (NOT OUT
+  or UMPIRE'S CALL), because near the stumps the ball is often lost from view or its deflection is taken for a
+  pad. The live screens have a quick **Batter: Right / Left / Nobody (practice)** switch;
+- **Bolder decisions** (off by default): a definite OUT / NOT OUT when the app is 80 % sure instead of 90 %.
+  Fewer UMPIRE'S CALLs, but a few more wrong decisions (see [accuracy.md](accuracy.md));
 - the pitch length (stumps to stumps), **or leave it empty**: the app then measures it from the picture.
   This needs the bowler's stumps in the picture. A tape measure is still more exact (the picture gives
   about ±0.3 m), and the app asks for it when the picture is not exact enough.
@@ -87,7 +92,8 @@ Every mode opens the same calibration screen on a still picture from the camera:
 
 While tracking, the laptop shows the phone's picture live with a **red box that follows the ball** and an orange
 trail behind it, like a phone camera following a face. The box appears a few frames after the ball comes into view
-and stays on it through the bounce. If the box never appears on a thrown ball, the ball is not being seen: switch on
+and stays on it through the bounce. It only starts on something heading for the batter's stumps, so the
+bowler's arm swinging up and round is mostly ignored (it can still sit on the hand for a moment at the release). If the box never appears on a thrown ball, the ball is not being seen: switch on
 **Show what the engine sees** (green: area watched for the ball; yellow: everything that could be the ball in the
 last second) and check the light and the calibration. Under the picture, "Balls found" and "other movement ignored
 (last: ...)" say what the engine made of each movement.

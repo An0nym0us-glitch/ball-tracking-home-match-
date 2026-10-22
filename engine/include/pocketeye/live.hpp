@@ -1,6 +1,7 @@
 #pragma once
 
 #include <deque>
+#include <limits>
 #include <vector>
 
 #include "pocketeye/detector.hpp"
@@ -27,7 +28,10 @@ struct LiveBall {
 // noise is not followed.
 class LiveFollower {
  public:
-  explicit LiveFollower(int image_width) : image_width_(image_width) {}
+  // target: the batter's stumps in the picture. A ball is only taken up while it
+  // heads towards them (the bowler's arm swings up, back and round).
+  explicit LiveFollower(int image_width, Vec2 target = Vec2::Constant(std::numeric_limits<double>::quiet_NaN()))
+      : image_width_(image_width), target_(target) {}
   void update(double t, const std::vector<Candidate>& cands);
   // State predicted to t_now (at most a few frames ahead).
   LiveBall state(double t_now) const;
@@ -50,8 +54,10 @@ class LiveFollower {
   int match(const Track& tr, double t, const std::vector<Candidate>& cands, const std::vector<bool>& used,
             bool confirmed) const;
   static void advance(Track& tr, double t, const Candidate& c);
+  bool headsForTarget(const Track& tr) const;
 
   int image_width_;
+  Vec2 target_;
   bool active_ = false;
   Track ball_;
   std::vector<Track> tentative_;

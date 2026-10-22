@@ -99,6 +99,24 @@ def random_scene(rng: np.random.Generator, preset: str, overrides: dict | None =
         dl["turn_deg"] = float(rng.uniform(-1.0, 1.0))
         dl["pad_y"] = float(L - rng.uniform(0.6, 1.1))
         dl["speed"] = float(rng.uniform(*SPEEDS[ball]) * 0.85)
+    if scenario == "bowled":
+        # Bowling at empty stumps ("No batter" in the app): balls aimed at the
+        # stumps, which are solid (the ball bounces back off them). Must come out
+        # BOWLED or at least "hitting", never "missing". The override
+        # config_batter "right" / "left" gives the same balls with the app set up
+        # for a batter (an LBW verdict instead: see docs/accuracy.md).
+        dl = scene["delivery"]
+        scene["batter_present"] = False
+        scene["hand"] = "right"  # off/leg sides as the app reports them without a batter
+        dl["pad_y"] = None
+        dl["release"][0] = float(rng.uniform(-0.2, 0.2))
+        dl["bounce_x"] = float(rng.uniform(-0.06, 0.06))
+        if not full_toss:
+            dl["bounce_y"] = float(L * rng.uniform(0.6, 0.88))
+        dl["full_toss_z_at_stumps"] = float(rng.uniform(0.1, 0.45))
+        dl["lateral_accel"] = float(rng.uniform(-0.8, 0.8))
+        dl["turn_deg"] = float(rng.uniform(-1.5, 1.5))
+        dl["stumps"] = [L - 0.018, 0.5 * scene["stump_width"], scene["stump_height"]]
     if scenario == "practice":
         # Bowling at empty stumps: no batter, no pad.
         scene["batter_present"] = False
@@ -221,7 +239,7 @@ def render_scene(scene: dict, out_dir: str, seed: int) -> dict:
         "taps": stump_taps(cam, s, rng),
         "camera_hint": {"hfov_deg": round(s["hfov_deg"] + float(rng.uniform(-1.5, 1.5)), 1)},
         "ball": d.ball,
-        "batter": s["hand"] if s.get("batter_present", True) else "none",
+        "batter": s.get("config_batter") or (s["hand"] if s.get("batter_present", True) else "none"),
     }
     if s["give_length"]:
         config["pitch"]["length_m"] = round(L, 2)
@@ -272,7 +290,7 @@ def main():
     ap.add_argument("--preset", choices=sorted(PRESETS), default="720p30")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--override", default=None, help="JSON dict merged into every scene")
-    ap.add_argument("--scenario", choices=["random", "plumb", "practice"], default="random")
+    ap.add_argument("--scenario", choices=["random", "plumb", "practice", "bowled"], default="random")
     a = ap.parse_args()
     overrides = json.loads(a.override) if a.override else None
     for d in generate(a.out, a.count, a.seed, a.preset, a.workers, overrides, a.scenario):

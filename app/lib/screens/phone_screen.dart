@@ -14,6 +14,7 @@ import '../engine/native.dart';
 import '../engine/workers.dart';
 import '../model/delivery.dart';
 import '../model/session.dart';
+import '../widgets/batter_switch.dart';
 import '../widgets/engine_overlay.dart';
 import '../widgets/result_card.dart';
 import 'calibration_screen.dart';
@@ -358,6 +359,15 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
               '${(_engineStats['last_reject'] as String? ?? '').isNotEmpty ? ' (last: ${_engineStats['last_reject']})' : ''}'
               '${((_engineStats['analyses_waiting'] as num?) ?? 0) > 0 ? '  |  analysing...' : ''}',
               style: t.bodySmall),
+        if (_engineOn)
+          BatterSwitch(
+            value: s.batter,
+            onChanged: (v) {
+              setState(() => s.batter = v);
+              s.save();
+              _worker?.configure(s.toConfigJson()); // new settings for the next ball
+            },
+          ),
         Row(children: [
           Expanded(
             child: SwitchListTile(

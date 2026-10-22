@@ -52,6 +52,11 @@ GATES = {
 GATES_PLUMB = {"found_rate": 0.6, "wrong_lbw_rate": 0.10}
 
 # Practice (no batter): never an LBW verdict, "would it hit the stumps" never wrong.
+# Balls that hit empty stumps ("No batter"): never "missing", never an LBW
+# verdict; BOWLED or "would hit" measured 38 % (16 CI scenes) to 69 % (30
+# scenes), the rest umpire's call (docs/accuracy.md).
+GATES_BOWLED = {"found_rate": 0.7, "wrong_lbw_rate": 0.0, "bowled_missing": 0, "bowled_lbw": 0, "bowled_rate": 0.3}
+
 GATES_PRACTICE = {"found_rate": 0.7, "wrong_lbw_rate": 0.0, "wrong_stumps": 0, "lbw_given": 0,
                   "line_at_stumps_cm": (7, 70)}
 
@@ -141,6 +146,10 @@ def evaluate_scene(scene: str, result: dict) -> dict:
         w = (d["lbw"].get("wickets") or {}).get("status")
         row["stumps_engine"] = w
         row["lbw_given"] = bool(d["lbw"].get("applicable"))
+    if gt.get("bowled"):
+        lbw = d["lbw"]
+        row["bowled_engine"] = ("BOWLED" if lbw.get("impact_kind") == "stumps" else
+                                (lbw["decision"] if lbw.get("applicable") else "n/a (" + lbw["impact_kind"] + ")"))
     if "lbw" in gt:
         lbw = d["lbw"]
         row["lbw_truth"] = gt["lbw"]["decision"]
@@ -178,6 +187,13 @@ def summarise(rows: list[dict]) -> dict:
         if errs:
             s["metrics"][k] = {"n": len(errs), "median": statistics.median(errs), "p90": pct(errs, 0.9),
                                "unit": unit, "interval_coverage": sum(cov) / len(cov)}
+    bw = [r for r in found if "bowled_engine" in r]
+    s["bowled"] = {"n": len(bw), "bowled": sum(1 for r in bw if r["bowled_engine"] == "BOWLED"),
+                   "lbw_given": sum(1 for r in bw if r["bowled_engine"] in ("OUT", "NOT OUT", "UMPIRE'S CALL")),
+                   "not_out": sum(1 for r in bw if r["bowled_engine"] == "NOT OUT"),
+                   "hitting": sum(1 for r in bw if r["bowled_engine"] != "BOWLED" and r.get("stumps_engine") == "hitting"),
+                   "missing": sum(1 for r in bw if r["bowled_engine"] != "BOWLED" and r.get("stumps_engine") == "missing")}
+    s["bowled_rate"] = (s["bowled"]["bowled"] + s["bowled"]["hitting"]) / max(len(bw), 1)
     lbw = [r for r in found if "lbw_truth" in r]
     right = sum(1 for r in lbw if r["lbw_engine"] == r["lbw_truth"])
     ucall = sum(1 for r in lbw if r["lbw_engine"] == "UMPIRE'S CALL")
@@ -214,6 +230,10 @@ def report_md(summary: dict, rows: list[dict], preset: str) -> str:
            f"umpire's call {summary['lbw']['umpires_call']}, impact not recognised {summary['lbw']['not_applicable']}, "
            f"**wrong {summary['lbw']['wrong']}**; true OUTs given OUT: "
            f"{summary['lbw']['out_given']}/{summary['lbw']['true_out']}",
+           *([f"- Hit the stumps ({summary['bowled']['n']} found): BOWLED {summary['bowled']['bowled']}, "
+              f"otherwise 'would hit' {summary['bowled']['hitting']}, **'missing' {summary['bowled']['missing']}**; "
+              f"LBW verdict instead {summary['bowled']['lbw_given']} (NOT OUT {summary['bowled']['not_out']})"]
+             if summary["bowled"]["n"] else []),
            f"- Analysis time per delivery: median {summary['analysis_ms_median']:.0f} ms, "
            f"90th percentile {summary['analysis_ms_p90']:.0f} ms; detection {summary['detect_ms_per_frame']:.1f} ms/frame",
            "", "| Metric | Median error | 90 % of errors below | 90 % interval contains truth |",
@@ -242,7 +262,7 @@ def main():
     ap.add_argument("--generate", type=int, default=0, help="generate this many new scenes first")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--preset", default="720p30")
-    ap.add_argument("--scenario", choices=["random", "plumb", "practice"], default="random")
+    ap.add_argument("--scenario", choices=["random", "plumb", "practice", "bowled"], default="random")
     ap.add_argument("--cli", default=os.path.join(ROOT, "engine", "build", "pocketeye-cli"))
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--report", help="write a Markdown summary here")
@@ -270,8 +290,15 @@ def main():
         with open(a.json, "w") as f:
             json.dump({"summary": summary, "rows": rows}, f, indent=1)
     if a.gate:
-        g = {"random": GATES[a.preset], "plumb": GATES_PLUMB, "practice": GATES_PRACTICE}[a.scenario]
+        g = {"random": GATES[a.preset], "plumb": GATES_PLUMB, "practice": GATES_PRACTICE,
+             "bowled": GATES_BOWLED}[a.scenario]
         failures = []
+        if "bowled_missing" in g and summary["bowled"]["missing"] > g["bowled_missing"]:
+            failures.append(f"balls that hit the stumps called 'missing' {summary['bowled']['missing']} times")
+        if "bowled_lbw" in g and summary["bowled"]["lbw_given"] > g["bowled_lbw"]:
+            failures.append(f"LBW verdict for balls that hit the stumps {summary['bowled']['lbw_given']} times")
+        if "bowled_rate" in g and summary["bowled_rate"] < g["bowled_rate"]:
+            failures.append(f"BOWLED or 'would hit' for {summary['bowled_rate']:.2f} of stump hits < {g['bowled_rate']}")
         if "wrong_stumps" in g and summary["stumps"]["wrong"] > g["wrong_stumps"]:
             failures.append(f"'would it hit the stumps' wrong {summary['stumps']['wrong']} times")
         if "lbw_given" in g and summary["stumps"]["lbw_given"] > g["lbw_given"]:

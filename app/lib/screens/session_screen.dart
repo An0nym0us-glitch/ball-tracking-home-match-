@@ -22,6 +22,7 @@ class _SessionScreenState extends State<SessionScreen> {
   late final _fov = TextEditingController(text: widget.session.hfovDeg.toStringAsFixed(0));
   late String _ball = widget.session.ball;
   late String _batter = widget.session.batter;
+  late bool _bold = widget.session.boldDecisions;
   late bool _bowlerStumps = widget.session.bowlerStumps;
 
   static String _cm(double? m) => m == null ? '' : (m * 100).toStringAsFixed(0);
@@ -53,6 +54,7 @@ class _SessionScreenState extends State<SessionScreen> {
     }
     s.ball = _ball;
     s.batter = _batter;
+    s.boldDecisions = _bold;
     s.bowlerStumps = _bowlerStumps;
     await s.save();
     if (!mounted) return;
@@ -131,12 +133,23 @@ class _SessionScreenState extends State<SessionScreen> {
               selected: {_batter},
               onSelectionChanged: (v) => setState(() => _batter = v.first),
             ),
-            if (_batter == 'none')
-              const Padding(
-                padding: EdgeInsets.only(top: 4),
-                child: Text('Practice at empty stumps: no LBW, the app says whether each ball would hit the stumps.'),
-              ),
-            const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(_batter == 'none'
+                  ? 'Practice at empty stumps: no LBW. Each ball shows whether it would hit the stumps, or BOWLED '
+                      'when it hits them.'
+                  : 'Only with a batter standing there. Bowling at empty stumps? Choose No batter: otherwise a ball '
+                      'that hits the stumps can come out as an LBW decision.'),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Bolder decisions'),
+              subtitle: const Text("A definite OUT / NOT OUT when the app is 80 % sure instead of 90 %: fewer umpire's "
+                  'calls, but a few more wrong ones.'),
+              value: _bold,
+              onChanged: (v) => setState(() => _bold = v),
+            ),
+            const SizedBox(height: 16),
             Text(
                 _bowlerStumps
                     ? "Only if the bowler's stumps are NOT visible in the camera picture:"

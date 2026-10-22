@@ -38,6 +38,8 @@ class Delivery:
     friction: float | None = None
     drag_k: float | None = None
     t_release: float = 0.8
+    stumps: tuple | None = None            # solid batter's stumps (y of the front face, half width, height):
+                                           # the ball bounces back off them; None = it flies through
 
 
 @dataclass
@@ -49,6 +51,8 @@ class Flight:
     bounce: tuple | None = None            # (t, p, v_in)
     padded: bool = False
     pad: tuple | None = None               # (t, p, v)
+    stumped: bool = False
+    stumps_hit: tuple | None = None        # (t, p, v) when the ball hit solid stumps
 
 
 def _acc(v, k, lat):
@@ -112,7 +116,16 @@ def run(d: Delivery, v0, y_stop: float, use_pad: bool, dt: float = 2e-4,
             v = (0.3 * v[0] + 0.4, -0.25 * v[1], 0.4 * abs(v[2]) + 0.5)
             lat = 0.0
             t_pad_end = t + t_after_pad
-        if p[2] < r and (f.bounced or f.padded) and v[2] < 0:
+        if use_pad and not f.padded and not f.stumped and d.stumps is not None:
+            y_front, half, top = d.stumps
+            if p[1] >= y_front - r and abs(p[0]) <= half + r and p[2] <= top + r:
+                f.stumped = True
+                f.stumps_hit = (t, p, v)
+                # Knocks the stumps back and drops in front of them.
+                v = (0.2 * v[0], -0.15 * v[1], 0.3 * abs(v[2]) + 0.3)
+                lat = 0.0
+                t_pad_end = t + t_after_pad
+        if p[2] < r and (f.bounced or f.padded or f.stumped) and v[2] < 0:
             v = (0.8 * v[0], 0.8 * v[1], -0.5 * v[2])
         f.ts.append(t); f.ps.append(p); f.vs.append(v)
         if p[1] > y_stop or t > t_pad_end:
@@ -208,6 +221,9 @@ def truth(d: Delivery, L: float, stump_height: float, stump_width: float, hand: 
     t_end = t_st
     if seen.padded:
         t_end = min(t_end, seen.pad[0]) if t_end is not None else seen.pad[0]
+    gt["bowled"] = seen.stumped
+    if seen.stumped:
+        gt["t_stumps"] = seen.stumps_hit[0]
     if t_end is None:  # never reached the stumps line (very slow ball): use the end of the flight
         t_end = free.ts[-1]
     # Average speed: path length from the release line to the stumps or the pad.

@@ -50,6 +50,11 @@ jobs:
           python3 tools/eval/run_eval.py --generate 12 --seed 303 --scenario practice \
             --work out/eval_practice --report out/eval_practice.md --gate
 
+      - name: "Synthetic accuracy gate (balls hitting empty stumps: BOWLED, never missing)"
+        run: |
+          python3 tools/eval/run_eval.py --generate 16 --seed 404 --scenario bowled \
+            --work out/eval_bowled --report out/eval_bowled.md --gate
+
       # The app's screens and workers against the engine just built (the
       # calibration screen, live mode, the worker isolates).
       - uses: subosito/flutter-action@v2

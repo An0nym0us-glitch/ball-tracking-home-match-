@@ -9,6 +9,7 @@ import '../engine/workers.dart';
 import '../model/delivery.dart';
 import '../model/session.dart';
 import '../net/protocol.dart';
+import '../widgets/batter_switch.dart';
 import '../widgets/engine_overlay.dart';
 import '../widgets/result_card.dart';
 import 'calibration_screen.dart';
@@ -168,6 +169,15 @@ class _LiveScreenState extends State<LiveScreen> {
                             width: _w.toDouble(), height: _h.toDouble(), ball: _ball, debug: _debug)),
                 ]),
               ),
+            ),
+          if (ready)
+            BatterSwitch(
+              value: s.batter,
+              onChanged: (v) {
+                setState(() => s.batter = v);
+                s.save();
+                _maybeStartEngine(); // new settings for the next ball
+              },
             ),
           if (ready)
             SwitchListTile(

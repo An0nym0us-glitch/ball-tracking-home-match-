@@ -37,6 +37,9 @@ class Session {
   bool bowlerStumps = true;
   String ball = 'tennis';
   String batter = 'right';
+  /// Definite verdicts at 80 % certainty instead of 90 %: fewer umpire's calls,
+  /// a few more wrong calls (docs/accuracy.md).
+  bool boldDecisions = false;
   double? cameraHeight; // only needed if the bowler's stumps are out of frame
   double? cameraDistance;
   double hfovDeg = 65; // phone field of view (hint)
@@ -70,6 +73,7 @@ class Session {
         if (cameraDistance != null) 'camera_distance_m': cameraDistance,
         'ball': ball,
         'batter': batter,
+        if (boldDecisions) 'decision_probability': 0.8,
       });
 
   Map<String, dynamic> toJson() => {
@@ -80,6 +84,7 @@ class Session {
         'stumpWidth': stumpWidth,
         'ball': ball,
         'batter': batter,
+        'boldDecisions': boldDecisions,
         'cameraHeight': cameraHeight,
         'cameraDistance': cameraDistance,
         'hfovDeg': hfovDeg,
@@ -101,6 +106,7 @@ class Session {
     s.stumpWidth = d('stumpWidth', s.stumpWidth);
     s.ball = (j['ball'] as String?) ?? s.ball;
     s.batter = (j['batter'] as String?) ?? s.batter;
+    s.boldDecisions = (j['boldDecisions'] as bool?) ?? false;
     s.cameraHeight = (j['cameraHeight'] as num?)?.toDouble();
     s.cameraDistance = (j['cameraDistance'] as num?)?.toDouble();
     s.hfovDeg = d('hfovDeg', s.hfovDeg);

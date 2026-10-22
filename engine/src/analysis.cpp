@@ -580,15 +580,21 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
       std::fprintf(stderr, "impact %s t=%.3f p=(%.2f %.2f %.2f) L=%.2f end=%d first_after=%d\n",
                    impactKindName(kind), t_imp, p.x(), p.y(), p.z(), L, hyp.end, first_after);
     }
+    const bool at_stumps_box = std::abs(p.x()) <= 0.5 * cfg.pitch.stump_width + rb &&
+                               p.z() <= cfg.pitch.stump_height + rb;
     if (p.y() > L + 0.3) {
       kind = ImpactKind::None;
     } else if (p.y() >= L - 0.10) {
-      kind = ImpactKind::Stumps;
+      // At the stumps line: hit them, or passed beside / over them (partly
+      // hidden behind them, which can look like a deflection).
+      kind = at_stumps_box ? ImpactKind::Stumps : ImpactKind::None;
     } else if (!cfg.batter_present) {
-      // No batter: only the stumps can stop the ball. A deflection just short
-      // of the stumps line is the ball hitting them; a ball that is only lost
+      // No batter: only the stumps can stop the ball. A ball that is only lost
       // from view proves nothing (the projected path says if it would hit).
-      kind = kind == ImpactKind::Pad && p.y() >= L - 0.4 ? ImpactKind::Stumps : ImpactKind::None;
+      // Along the pitch one camera places the deflection only to within about
+      // a metre at 30 fps, so any deflection in the last metres, inside the
+      // stumps' width and height, counts.
+      kind = kind == ImpactKind::Pad && p.y() >= L - 1.5 && at_stumps_box ? ImpactKind::Stumps : ImpactKind::None;
     }
     if (kind == ImpactKind::None) t_imp = kNaN;
   }
@@ -750,6 +756,7 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
   li.p_impact_outside_leg = fraction(s_ix, [&](double x) { return x < -edge_cm; });
   li.p_impact_outside_off = fraction(s_ix, [&](double x) { return x > edge_cm; });
   li.p_hit = fraction(s_hit, [](double h) { return h > 0.5; });
+  if (kind == ImpactKind::Stumps) li.p_hit = 1.0;  // seen hitting them
   for (double* p : {&li.p_pitch_outside_leg, &li.p_pitch_outside_off, &li.p_impact_outside_leg,
                     &li.p_impact_outside_off, &li.p_hit}) {
     if (!std::isfinite(*p)) *p = 0.0;

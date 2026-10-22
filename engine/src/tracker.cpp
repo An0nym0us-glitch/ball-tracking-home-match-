@@ -60,7 +60,7 @@ std::vector<std::vector<std::pair<int, int>>> findBallPaths(const std::deque<Fra
           const Candidate& cA = cand(a);
           const int gap = fb - fa;
           const double dist = (cb.uv - cA.uv).norm();
-          if (dist > max_step * gap || dist < cfg.min_step_px * gap) continue;
+          if (dist > max_step * gap || dist < cfg.min_step_px * std::min(gap, 2)) continue;
           const double ratio = (cb.radius_px + 0.5) / (cA.radius_px + 0.5);
           if (ratio < 0.25 || ratio > 4.0) continue;  // blur makes radii unreliable
           const double gap_pen = cfg.gap_cost * (gap - 1);
