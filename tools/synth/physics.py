@@ -208,6 +208,8 @@ def truth(d: Delivery, L: float, stump_height: float, stump_width: float, hand: 
     t_end = t_st
     if seen.padded:
         t_end = min(t_end, seen.pad[0]) if t_end is not None else seen.pad[0]
+    if t_end is None:  # never reached the stumps line (very slow ball): use the end of the flight
+        t_end = free.ts[-1]
     # Average speed: path length from the release line to the stumps or the pad.
     length, prev, n = 0.0, p_rel, 200
     for i in range(1, n + 1):

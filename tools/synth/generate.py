@@ -16,6 +16,7 @@ import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
 
+import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -196,6 +197,14 @@ def render_scene(scene: dict, out_dir: str, seed: int) -> dict:
         img += noise_bank[i % len(noise_bank)]
         enc.write(np.clip(img, 0, 255).astype(np.uint8))
     enc.close()
+
+    # The picture the app calibrates on: the empty pitch (before the batter
+    # takes guard), as a camera JPEG.
+    img = bg.copy()
+    render.draw_stumps(img, cam, L, s["stump_height"], s["stump_width"])
+    render.draw_stumps(img, cam, 0.0, s["stump_height"], s["stump_width"])
+    img += noise_bank[0]
+    cv2.imwrite(os.path.join(out_dir, "calib.jpg"), np.clip(img, 0, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 90])
 
     with open(os.path.join(out_dir, "timestamps.txt"), "w") as f:
         f.write("\n".join(f"{t:.6f}" for t in times) + "\n")

@@ -43,6 +43,7 @@ struct PathConfig {
   double strength_ref = 25.0;   // detections this strong get the full reward
   int min_points = 7;
   int max_paths = 6;            // per search
+  int max_frame_candidates = 10;  // strongest per frame; bounds the search cost on noisy video
 };
 
 // Finds up to cfg.max_paths disjoint paths (best first) among unused candidates.
@@ -53,7 +54,7 @@ std::vector<std::vector<std::pair<int, int>>> findBallPaths(const std::deque<Fra
 // paths that have ended ("settled") for analysis.
 class Tracker {
  public:
-  Tracker(int image_width, PathConfig cfg = {}, double window_s = 4.0, double settle_s = 0.3);
+  Tracker(int image_width, PathConfig cfg = {}, double window_s = 2.6, double settle_s = 0.3);
   void update(int frame, double t, const std::vector<Candidate>& candidates);
   void flush();
   std::vector<std::vector<TrackPoint>> takeFinished(size_t min_points);

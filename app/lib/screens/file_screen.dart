@@ -148,7 +148,7 @@ class _FileScreenState extends State<FileScreen> {
             OutlinedButton.icon(
                 onPressed: _job == null ? _calibrate : null,
                 icon: const Icon(Icons.straighten),
-                label: Text(calibrated ? 'Re-calibrate' : 'Calibrate (tap stumps)')),
+                label: Text(calibrated ? 'Re-calibrate' : 'Calibrate')),
           if (_video != null)
             FilledButton.icon(
                 onPressed: calibrated && _job == null ? _analyse : null,

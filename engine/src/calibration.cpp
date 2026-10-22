@@ -144,6 +144,10 @@ CalibrationResult calibrateFromTaps(const CalibrationInput& in) {
   const double f_prior = 0.5 * in.width / std::tan(0.5 * hfov * kPi / 180.0);
   pb.log_f_prior = std::log(f_prior);
   pb.log_f_sigma = in.hfov_deg ? 0.08 : 0.35;
+  if (in.hfov_deg && in.hfov_sigma_deg) {
+    // d(log f) / d(hfov) = -1 / sin(hfov)
+    pb.log_f_sigma = std::max(0.005, *in.hfov_sigma_deg * kPi / 180.0 / std::sin(hfov * kPi / 180.0));
+  }
 
   const bool est_len = !in.length_known;
   const int n_params = est_len ? 8 : 7;

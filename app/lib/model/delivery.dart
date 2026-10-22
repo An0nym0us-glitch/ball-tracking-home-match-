@@ -1,5 +1,8 @@
 import 'dart:typed_data';
 
+/// Number from engine JSON; NaN when missing (the engine writes null for values it could not compute).
+double _d(dynamic v) => v is num ? v.toDouble() : double.nan;
+
 /// A value with its 90 % range, as reported by the engine.
 class Est {
   const Est(this.value, this.lo, this.hi);
@@ -8,8 +11,9 @@ class Est {
   final double hi;
 
   static Est? parse(dynamic j) {
-    if (j is! Map) return null;
-    return Est((j['value'] as num).toDouble(), (j['lo'] as num).toDouble(), (j['hi'] as num).toDouble());
+    if (j is! Map || j['value'] is! num) return null;
+    final v = _d(j['value']), lo = _d(j['lo']), hi = _d(j['hi']);
+    return Est(v, lo.isNaN ? v : lo, hi.isNaN ? v : hi);
   }
 
   String fmt(int digits, [String unit = '']) =>
@@ -24,15 +28,8 @@ class PathPoint {
     if (j is! List) return const [];
     return [
       for (final p in j)
-        if (p['p'] != null)
-          PathPoint(
-            (p['t'] as num).toDouble(),
-            (p['p'][0] as num).toDouble(),
-            (p['p'][1] as num).toDouble(),
-            (p['p'][2] as num).toDouble(),
-            (p['uv'][0] as num).toDouble(),
-            (p['uv'][1] as num).toDouble(),
-          )
+        if (p['p'] is List && p['uv'] is List)
+          PathPoint(_d(p['t']), _d(p['p'][0]), _d(p['p'][1]), _d(p['p'][2]), _d(p['uv'][0]), _d(p['uv'][1]))
     ];
   }
 }
@@ -70,8 +67,7 @@ class Delivery {
     projection = PathPoint.parse(json['projection']);
     obs = [
       for (final o in (json['observations'] as List? ?? []))
-        ObsPoint((o['t'] as num).toDouble(), (o['uv'][0] as num).toDouble(), (o['uv'][1] as num).toDouble(),
-            (o['r'] as num).toDouble(), (o['label'] as num).toInt())
+        ObsPoint(_d(o['t']), _d(o['uv'][0]), _d(o['uv'][1]), _d(o['r']), (o['label'] as num?)?.toInt() ?? -1)
     ];
   }
 
@@ -92,8 +88,8 @@ class Delivery {
   bool get hasBounce => json['has_bounce'] == true;
   String get lengthZone => json['length_zone'] as String? ?? '';
   String get lineZone => json['line_zone'] as String? ?? '';
-  double get tFirst => (json['time_s'][0] as num).toDouble();
-  double get tLast => (json['time_s'][1] as num).toDouble();
+  double get tFirst => _d(json['time_s']?[0]);
+  double get tLast => _d(json['time_s']?[1]);
   double? get tBounce => (json['t_bounce'] as num?)?.toDouble();
   double? get tImpact => (json['t_impact'] as num?)?.toDouble();
   List<String> get warnings => [for (final w in (json['quality']?['warnings'] as List? ?? [])) w as String];

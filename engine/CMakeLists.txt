@@ -44,6 +44,7 @@ set(PE_SOURCES
   src/geometry.cpp
   src/ball.cpp
   src/calibration.cpp
+  src/autocal.cpp
   src/lm.cpp
   src/flight.cpp
   src/fit.cpp
@@ -104,6 +105,8 @@ if(PE_BUILD_TESTS)
     tests/test_fit.cpp
     tests/test_lbw.cpp
     tests/test_analysis.cpp
+    tests/test_engine.cpp
+    tests/test_autocal.cpp
     tests/sim.cpp)
   target_link_libraries(pocketeye-tests PRIVATE pocketeye GTest::gtest GTest::gtest_main)
   include(GoogleTest)

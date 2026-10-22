@@ -28,6 +28,9 @@ const ballTypes = ['tennis', 'plastic', 'rubber', 'leather'];
 /// Everything the engine needs for one setup (pitch, stumps, camera taps, ball).
 class Session {
   double pitchLength = 18.0; // stumps to stumps, metres
+  /// True when the user measured the pitch length; otherwise it is measured
+  /// from the picture (both sets of stumps visible) and pitchLength is that estimate.
+  bool lengthMeasured = false;
   double stumpHeight = 0.71;
   double stumpWidth = 0.23; // outer edge to outer edge
   String ball = 'tennis';
@@ -35,6 +38,8 @@ class Session {
   double? cameraHeight; // only needed if the bowler's stumps are out of frame
   double? cameraDistance;
   double hfovDeg = 65; // phone field of view (hint)
+  /// How well hfovDeg is known (degrees): set from the phone's lens data; null = a rough guess.
+  double? hfovSigmaDeg;
   int imageWidth = 0;
   int imageHeight = 0;
   Map<String, List<double>> taps = {};
@@ -44,12 +49,17 @@ class Session {
 
   bool matchesSize(int w, int h) => w == imageWidth && h == imageHeight;
 
-  /// Engine session config (see engine/include/pocketeye/config.hpp).
+  /// Engine session config (see engine/include/pocketeye/config.hpp). Without a
+  /// measured length the engine measures it from the bowler's and batter's stumps.
   String toConfigJson() => jsonEncode({
         'image': {'width': imageWidth, 'height': imageHeight},
-        'pitch': {'length_m': pitchLength, 'stump_height_m': stumpHeight, 'stump_width_m': stumpWidth},
+        'pitch': {
+          if (lengthMeasured) 'length_m': pitchLength,
+          'stump_height_m': stumpHeight,
+          'stump_width_m': stumpWidth,
+        },
         'taps': taps,
-        'camera_hint': {'hfov_deg': hfovDeg},
+        'camera_hint': {'hfov_deg': hfovDeg, if (hfovSigmaDeg != null) 'hfov_sigma_deg': hfovSigmaDeg},
         if (cameraHeight != null) 'camera_height_m': cameraHeight,
         if (cameraDistance != null) 'camera_distance_m': cameraDistance,
         'ball': ball,
@@ -58,6 +68,7 @@ class Session {
 
   Map<String, dynamic> toJson() => {
         'pitchLength': pitchLength,
+        'lengthMeasured': lengthMeasured,
         'stumpHeight': stumpHeight,
         'stumpWidth': stumpWidth,
         'ball': ball,
@@ -65,6 +76,7 @@ class Session {
         'cameraHeight': cameraHeight,
         'cameraDistance': cameraDistance,
         'hfovDeg': hfovDeg,
+        'hfovSigmaDeg': hfovSigmaDeg,
         'imageWidth': imageWidth,
         'imageHeight': imageHeight,
         'taps': taps,
@@ -74,6 +86,8 @@ class Session {
     final s = Session();
     double d(String k, double def) => (j[k] as num?)?.toDouble() ?? def;
     s.pitchLength = d('pitchLength', s.pitchLength);
+    // Settings saved before the length could be measured from the picture were typed in.
+    s.lengthMeasured = (j['lengthMeasured'] as bool?) ?? j.containsKey('pitchLength');
     s.stumpHeight = d('stumpHeight', s.stumpHeight);
     s.stumpWidth = d('stumpWidth', s.stumpWidth);
     s.ball = (j['ball'] as String?) ?? s.ball;
@@ -81,6 +95,7 @@ class Session {
     s.cameraHeight = (j['cameraHeight'] as num?)?.toDouble();
     s.cameraDistance = (j['cameraDistance'] as num?)?.toDouble();
     s.hfovDeg = d('hfovDeg', s.hfovDeg);
+    s.hfovSigmaDeg = (j['hfovSigmaDeg'] as num?)?.toDouble();
     s.imageWidth = (j['imageWidth'] as num?)?.toInt() ?? 0;
     s.imageHeight = (j['imageHeight'] as num?)?.toInt() ?? 0;
     final taps = j['taps'] as Map<String, dynamic>? ?? {};

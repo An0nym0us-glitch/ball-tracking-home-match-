@@ -70,9 +70,17 @@ PE_API int32_t pe_poll_result(pe_engine* e, char* buf, int32_t buf_len);
 /* Engine statistics (frames, per-step milliseconds) as JSON. */
 PE_API int32_t pe_stats_json(pe_engine* e, char* buf, int32_t buf_len);
 
-/* Synthetic speed test (see runBenchmark): JSON with engine_ms_per_frame and a
- * suggestion: "phone_only_60fps", "phone_only_30fps" or "laptop". */
+/* Synthetic speed test (see runBenchmark): JSON with engine_ms_per_frame, p90_ms
+ * and a suggestion: "phone_only_60fps", "phone_only_30fps" or "laptop". */
 PE_API int32_t pe_benchmark(int32_t width, int32_t height, int32_t frames, char* buf, int32_t buf_len);
+
+/* Finds the stumps in a still picture (JPEG bytes). config_json is a session
+ * config (pitch and stump sizes, camera hint, optional pitch length and
+ * camera measurements; taps are ignored). Writes JSON: {"ok", "message",
+ * "taps": {name: [u, v]}, "batter_found", "bowler_found", "length_estimated",
+ * "pitch_length_m", "pitch_length_sigma_m", "calibration"}. Returns the JSON length. */
+PE_API int32_t pe_auto_calibrate(const char* config_json, const uint8_t* jpeg, int32_t jpeg_len, char* buf,
+                                 int32_t buf_len);
 
 /* ---- Video files (desktop builds; return NULL / < 0 where unsupported) ---- */
 

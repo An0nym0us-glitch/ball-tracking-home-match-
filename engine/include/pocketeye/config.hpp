@@ -27,6 +27,9 @@ struct LoadedConfig {
 };
 
 LoadedConfig loadConfig(const nlohmann::json& j);  // throws std::runtime_error
+// Image size, pitch and stump sizes, camera hints and measurements, taps (if any).
+// with_image = false: only the pitch block is read.
+CalibrationInput calibrationInputFromJson(const nlohmann::json& j, bool with_image = true);
 
 nlohmann::json cameraToJson(const Camera& cam);
 Camera cameraFromJson(const nlohmann::json& j);

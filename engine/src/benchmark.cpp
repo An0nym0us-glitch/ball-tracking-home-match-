@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <opencv2/imgproc.hpp>
 #include <random>
@@ -32,7 +33,8 @@ json runBenchmark(int width, int height, int frames) {
   const double fps = 30.0;
   const double t_release = 0.3;
   const Camera& cam = cfg.analysis.camera;
-  double push_ms = 0;
+  std::vector<double> per_frame_ms;
+  YuvFrame yuv;
   const auto t_start = std::chrono::steady_clock::now();
   for (int i = 0; i < frames; ++i) {
     const double t = i / fps;
@@ -51,9 +53,11 @@ json runBenchmark(int width, int height, int frames) {
     frame.convertTo(frame, CV_16SC3);
     frame += n16;
     frame.convertTo(frame, CV_8UC3);
+    // Phones deliver YUV: time the engine on that, as in phone-only mode.
+    toYuvFrame(frame, yuv);
     const auto t0 = std::chrono::steady_clock::now();
-    engine.pushFrame(frame, t);
-    push_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    engine.pushFrame(yuv, t);
+    per_frame_ms.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     for (DeliveryResult r; engine.popResult(r);) {
     }
   }
@@ -61,16 +65,28 @@ json runBenchmark(int width, int height, int frames) {
   engine.finish();
   const double finish_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
   const double wall = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_start).count();
-  const double per_frame = push_ms / std::max(1, frames);
-  // Real time at 60 fps needs the per-frame work well under 16.7 ms (leave room
-  // for camera, conversion and the UI); 30 fps needs it under 33 ms.
-  std::string suggestion = per_frame < 9.0 ? "phone_only_60fps"
-                           : per_frame < 20.0 ? "phone_only_30fps"
-                                              : "laptop";
+  // Ball analysis runs on a background thread, so what limits the frame rate is
+  // the steady per-frame work. Use a high percentile: a frame that takes too
+  // long is a dropped frame.
+  std::vector<double> sorted = per_frame_ms;
+  std::sort(sorted.begin(), sorted.end());
+  const double median = sorted.empty() ? 0.0 : sorted[sorted.size() / 2];
+  const double p90 = sorted.empty() ? 0.0 : sorted[sorted.size() * 9 / 10];
+  double mean = 0;
+  for (double v : per_frame_ms) mean += v;
+  mean /= std::max<size_t>(1, per_frame_ms.size());
+  // 60 fps leaves 16.7 ms per frame; keep room for the camera, copying and the UI.
+  std::string suggestion = p90 < 12.0 ? "phone_only_60fps" : p90 < 25.0 ? "phone_only_30fps" : "laptop";
+  const double per_frame = mean;
   return {{"width", width},          {"height", height},
           {"frames", frames},        {"engine_ms_per_frame", per_frame},
+          {"median_ms", median},     {"p90_ms", p90},
           {"finish_ms", finish_ms},  {"wall_ms", wall},
-          {"suggestion", suggestion}};
+          {"suggestion", suggestion},
+          {"detect_ms_per_frame", engine.stats().detect_ms / std::max(1, frames)},
+          {"track_ms_per_frame", engine.stats().track_ms / std::max(1, frames)},
+          {"analyze_ms_total", engine.stats().analyze_ms},
+          {"tracks_analyzed", engine.stats().tracks_analyzed}};
 }
 
 }  // namespace pe

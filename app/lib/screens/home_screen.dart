@@ -51,16 +51,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<File> _benchFile() async =>
       File('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}benchmark.json');
 
+  /// Bump when the speed test changes, so saved results from older versions are re-measured.
+  static const _benchVersion = 2;
+
   Future<Map<String, dynamic>?> _loadBenchmark() async {
     final f = await _benchFile();
     if (!await f.exists()) return null;
-    return jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+    final r = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+    return r['bench_version'] == _benchVersion ? r : null;
   }
 
   /// First launch on a phone: time the engine and suggest a mode.
   Future<void> _runBenchmark() async {
     setState(() => _benchRunning = true);
     final r = await Isolate.run(() => PocketEyeNative.instance.benchmark(width: 1280, height: 720, frames: 150));
+    r['bench_version'] = _benchVersion;
     final f = await _benchFile();
     await f.parent.create(recursive: true);
     await f.writeAsString(jsonEncode(r));
@@ -92,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: ListTile(
                   leading: const Icon(Icons.settings),
                   title: const Text('Pitch and match setup'),
-                  subtitle: Text('Pitch ${s.pitchLength.toStringAsFixed(2)} m, stumps '
+                  subtitle: Text('Pitch ${s.lengthMeasured ? '${s.pitchLength.toStringAsFixed(2)} m' : s.isCalibrated ? 'about ${s.pitchLength.toStringAsFixed(1)} m (from the picture)' : 'length from the picture'}, stumps '
                       '${(s.stumpHeight * 100).toStringAsFixed(0)}x${(s.stumpWidth * 100).toStringAsFixed(0)} cm, '
                       '${s.ball} ball, ${s.batter}-handed batter\n'
                       '${s.isCalibrated ? 'Calibrated for ${s.imageWidth}x${s.imageHeight}' : 'Not calibrated yet'}'),
@@ -146,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _benchCard(TextTheme t) {
     final b = _bench!;
-    final ms = (b['engine_ms_per_frame'] as num?)?.toDouble() ?? 0;
+    final ms = ((b['p90_ms'] ?? b['engine_ms_per_frame']) as num?)?.toDouble() ?? 0;
     final sug = b['suggestion'] as String? ?? 'laptop';
     final text = switch (sug) {
       'phone_only_60fps' => 'Fast phone: phone-only mode at 60 fps is recommended.',

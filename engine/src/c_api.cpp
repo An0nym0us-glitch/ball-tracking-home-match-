@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 
+#include "pocketeye/autocal.hpp"
 #include "pocketeye/config.hpp"
 #include "pocketeye/engine.hpp"
 #include "pocketeye/result_json.hpp"
@@ -26,7 +27,9 @@ struct pe_engine {
   std::unique_ptr<pe::Engine> engine;
   std::deque<std::string> pending;
   cv::Mat scratch;
-  cv::Mat last;  // last pushed frame (header only; data owned by the caller or scratch)
+  cv::Mat last;  // last pushed BGR/grey frame (copy)
+  pe::YuvFrame last_yuv;  // last pushed camera frame (copy), when newer than `last`
+  bool last_is_yuv = false;
   std::vector<uchar> jpeg;
 };
 
@@ -66,8 +69,46 @@ int32_t push(pe_engine* e, const cv::Mat& image, double t) {
   if (image.cols != cam.width || image.rows != cam.height) return -2;
   e->engine->pushFrame(image, t);
   image.copyTo(e->last);
+  e->last_is_yuv = false;
   drain(e);
   return 0;
+}
+
+// Android YUV_420_888 planes -> luma view (no copy) + interleaved half-resolution chroma.
+void yuv420ToFrame(const uint8_t* y, const uint8_t* u, const uint8_t* v, int width, int height, int y_stride,
+                   int uv_stride, int uv_pixel_stride, pe::YuvFrame& out) {
+  out.y = cv::Mat(height, width, CV_8UC1, const_cast<uint8_t*>(y), static_cast<size_t>(y_stride));
+  const int cw = width / 2, ch = height / 2;
+  out.uv.create(ch, cw, CV_8UC2);
+  for (int r = 0; r < ch; ++r) {
+    const uint8_t* ur = u + static_cast<size_t>(r) * uv_stride;
+    const uint8_t* vr = v + static_cast<size_t>(r) * uv_stride;
+    uint8_t* d = out.uv.ptr<uint8_t>(r);
+    for (int c = 0; c < cw; ++c) {
+      d[2 * c] = ur[static_cast<size_t>(c) * uv_pixel_stride];
+      d[2 * c + 1] = vr[static_cast<size_t>(c) * uv_pixel_stride];
+    }
+  }
+}
+
+// Small BGR copy of a YuvFrame (for thumbnails).
+cv::Mat yuvFrameToBgr(const pe::YuvFrame& f, int max_width) {
+  int w = f.y.cols, h = f.y.rows;
+  if (max_width > 0 && w > max_width) {
+    h = h * max_width / w;
+    w = max_width;
+  }
+  cv::Mat y, uv, ch[2], yuv, bgr;
+  cv::resize(f.y, y, cv::Size(w, h), 0, 0, cv::INTER_AREA);
+  if (f.uv.empty()) {
+    cv::cvtColor(y, bgr, cv::COLOR_GRAY2BGR);
+    return bgr;
+  }
+  cv::resize(f.uv, uv, cv::Size(w, h), 0, 0, cv::INTER_LINEAR);
+  cv::split(uv, ch);
+  cv::merge(std::vector<cv::Mat>{y, ch[0], ch[1]}, yuv);
+  cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR);
+  return bgr;
 }
 
 // Android YUV_420_888 planes -> BGR.
@@ -198,16 +239,29 @@ int32_t pe_push_yuv420(pe_engine* e, const uint8_t* y, const uint8_t* u, const u
                        double t_seconds) {
   if (!e || !y || !u || !v) return -1;
   try {
-    yuv420ToBgr(y, u, v, width, height, y_stride, uv_stride, uv_pixel_stride, e->scratch);
-    return push(e, e->scratch, t_seconds);
+    const pe::Camera& cam = e->config.engine.analysis.camera;
+    if (width != cam.width || height != cam.height) return -2;
+    pe::YuvFrame f;
+    yuv420ToFrame(y, u, v, width, height, y_stride, uv_stride, uv_pixel_stride, f);
+    e->engine->pushFrame(f, t_seconds);
+    f.y.copyTo(e->last_yuv.y);
+    e->last_yuv.uv = f.uv;
+    e->last_is_yuv = true;
+    drain(e);
+    return 0;
   } catch (...) {
     return -3;
   }
 }
 
 int32_t pe_last_frame_jpeg(pe_engine* e, int32_t max_width, int32_t quality, uint8_t* buf, int32_t buf_len) {
-  if (!e || e->last.empty()) return 0;
+  if (!e) return 0;
   try {
+    if (e->last_is_yuv) {
+      if (e->last_yuv.y.empty()) return 0;
+      return encodeJpeg(yuvFrameToBgr(e->last_yuv, max_width), 0, quality, e->jpeg, buf, buf_len);
+    }
+    if (e->last.empty()) return 0;
     return encodeJpeg(e->last, max_width, quality, e->jpeg, buf, buf_len);
   } catch (...) {
     return 0;
@@ -235,7 +289,9 @@ void pe_finish(pe_engine* e) {
 }
 
 int32_t pe_poll_result(pe_engine* e, char* buf, int32_t buf_len) {
-  if (!e || e->pending.empty()) return 0;
+  if (!e) return 0;
+  if (e->pending.empty()) drain(e);  // analyses finished in the background since the last frame
+  if (e->pending.empty()) return 0;
   const std::string& s = e->pending.front();
   const int32_t n = static_cast<int32_t>(s.size());
   if (buf_len <= n) return n;
@@ -253,8 +309,29 @@ int32_t pe_stats_json(pe_engine* e, char* buf, int32_t buf_len) {
                   {"track_ms_per_frame", st.track_ms / n},
                   {"analyze_ms_total", st.analyze_ms},
                   {"tracks_analyzed", st.tracks_analyzed},
-                  {"deliveries", st.deliveries}};
+                  {"deliveries", st.deliveries},
+                  {"rejected", st.rejected},
+                  {"last_reject", st.last_reject},
+                  {"analyses_waiting", st.analyses_waiting}};
   return copyOut(j.dump(), buf, buf_len);
+}
+
+int32_t pe_auto_calibrate(const char* config_json, const uint8_t* jpeg, int32_t jpeg_len, char* buf,
+                          int32_t buf_len) {
+  json out;
+  try {
+    if (!jpeg || jpeg_len <= 0) throw std::runtime_error("no picture");
+    const cv::Mat raw(1, jpeg_len, CV_8UC1, const_cast<uint8_t*>(jpeg));
+    const cv::Mat img = cv::imdecode(raw, cv::IMREAD_COLOR);
+    if (img.empty()) throw std::runtime_error("cannot decode the picture");
+    json cj = json::parse(config_json);
+    cj["image"] = {{"width", img.cols}, {"height", img.rows}};
+    cj.erase("taps");
+    out = pe::autoCalibrationToJson(pe::autoCalibrate(img, pe::calibrationInputFromJson(cj)));
+  } catch (const std::exception& ex) {
+    out = {{"ok", false}, {"message", std::string("Automatic calibration failed: ") + ex.what()}};
+  }
+  return copyOut(out.dump(), buf, buf_len);
 }
 
 int32_t pe_benchmark(int32_t width, int32_t height, int32_t frames, char* buf, int32_t buf_len) {

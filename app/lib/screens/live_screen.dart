@@ -60,6 +60,13 @@ class _LiveScreenState extends State<LiveScreen> {
           _status = e.text;
           _connected = e.connected;
         });
+        // The camera app reports its field of view (older Android API: roughly right).
+        final fov = e.hfovDeg;
+        if (fov != null && fov >= 30 && fov <= 120 && s.hfovSigmaDeg == null) {
+          s.hfovDeg = fov;
+          s.hfovSigmaDeg = 3.0;
+          s.save();
+        }
       case PreviewEvent():
         if (e.snapshot) _snapshot?.complete(e);
         final sizeChanged = e.width != _w || e.height != _h;
@@ -142,7 +149,7 @@ class _LiveScreenState extends State<LiveScreen> {
               FilledButton.icon(
                 onPressed: _calibrate,
                 icon: const Icon(Icons.straighten),
-                label: Text(ready ? 'Re-calibrate' : 'Calibrate: tap the stumps'),
+                label: Text(ready ? 'Re-calibrate' : 'Calibrate'),
               ),
             ]),
           if (_connected && !ready)

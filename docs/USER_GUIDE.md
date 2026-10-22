@@ -42,28 +42,35 @@ When Windows asks about network access, allow **private networks**. The phone ca
 
 ## 3. Pitch and match setup (once)
 
-In the app, open **Pitch and match setup** and type:
+In the app, open **Pitch and match setup** and enter:
 
-- the pitch length (stumps to stumps, in metres) and the stump height and width, measured with a tape. Accurate numbers matter most for LBW;
-- the ball type (tennis/tape, plastic, rubber, leather) and the batter (right- or left-handed).
+- the stump height (ground to the top of the stumps) and width (outer edge to outer edge), measured with a tape;
+- the ball type (tennis/tape, plastic, rubber, leather) and the batter (right- or left-handed);
+- the pitch length (stumps to stumps), **or leave it empty**: the app then measures it from the picture.
+  This needs the bowler's stumps in the picture. A tape measure is still more exact (the picture gives
+  about ±0.3 m), and the app asks for it when the picture is not exact enough.
 
-If the bowler's stumps are not in the picture, also give the camera height and its distance behind the bowler's stumps.
+If the bowler's stumps are not in the picture, the app also needs the pitch length, the camera height and its
+distance behind the bowler's stumps.
 
-## 4. Calibrate: tap the stumps
+## 4. Calibrate (the app finds the stumps)
 
+Calibrate **before the batter takes guard**, so that nothing stands in front of the stumps.
 Every mode opens the same calibration screen on a still picture from the camera:
 
-1. Zoom in (pinch or mouse wheel) and tap the requested point: bottom and top of the **left** and **right** outer stump at the batter's end ("left/right" as seen in the picture).
-2. Then the bowler's-end stumps if they are visible, or **Skip (not visible)**.
-3. Press **Check**. It shows the tap error and draws the stump lines and the pitch corridor in yellow. They should sit on the real stumps and pitch. **Undo** fixes a wrong tap.
-4. **Save calibration**.
+1. The app looks for both sets of stumps by itself (1–3 s) and draws yellow lines on them and along the pitch.
+2. Check that the yellow lines sit on the real stumps. If they do, press **Save calibration**.
+3. If they don't, press **Tap them myself** and tap the points it asks for: bottom and top of the **left** and
+   **right** outer stump at the batter's end ("left/right" as seen in the picture), then the bowler's stumps if
+   visible (or **Skip (not visible)**), then **Check**. **Find automatically** tries again.
+4. If the app asks for the pitch length, measure it and press **Use**.
 
 ## 5a. Phone + laptop (old phones)
 
 1. Phone and laptop on the **same Wi-Fi** (a phone hotspot that the laptop joins works too).
 2. Laptop: **Live: phone camera to this laptop**. It shows a QR code and a 6-digit code.
 3. Phone: open **PocketEye Camera** → **Scan laptop QR** and point it at the screen. If scanning fails, use **Type address** and enter the address, port and code shown under the QR code.
-4. Put the phone on its stand. On the laptop press **Calibrate: tap the stumps**.
+4. Put the phone on its stand. On the laptop press **Calibrate** (the app finds the stumps; you check).
 5. Bowl. Each delivery appears on the laptop as a card, and the same result card shows on the phone a moment later.
 6. Click a card for the replay (slow motion, **Zoom on batter**), the pitch map and all measurements.
 
@@ -78,14 +85,19 @@ On first launch the app runs a short speed test and suggests a mode:
 
 **Re-test** repeats it. Then:
 
-1. **Phone-only mode** → put the phone on the stand → **Calibrate: tap the stumps**.
+1. **Phone-only mode** → put the phone on the stand → **Calibrate** (the app finds the stumps; you check).
 2. Bowl. Cards appear on the phone, and tapping one opens the replay.
 
-The screen shows the engine time per frame and how many frames were skipped. If many frames are skipped, accuracy drops. Use the laptop mode for important games.
+After calibrating, the app fixes the camera's brightness and focus on the batter's stumps (otherwise the picture
+changes every time the bowler runs past, which hides the ball). If the light changes a lot, calibrate again.
+
+The screen shows the engine time per frame, how many frames were skipped, how many balls were found and how many
+other moving things were ignored (with the last reason). If many frames are skipped, accuracy drops. Use the laptop
+mode for important games.
 
 ## 6. Recorded videos (laptop)
 
-**Analyse a recorded video** → **Choose video** → **Calibrate (tap stumps)** → **Analyse**.
+**Analyse a recorded video** → **Choose video** → **Calibrate** → **Analyse**.
 Record with the phone's normal camera app at the highest frame rate it offers (60 fps is much better than 30).
 **Open replay video** shows the clip with the path drawn on it.
 
@@ -108,5 +120,6 @@ Record with the phone's normal camera app at the highest frame rate it offers (6
 |---|---|
 | Phone says "Laptop not found" | Same Wi-Fi? Live screen open on the laptop? Windows firewall allowed for private networks? Some public or office Wi-Fi blocks devices from seeing each other: use a phone hotspot. |
 | "Camera size changed: calibrate again" | The phone picture size changed (Quality setting). Calibrate again. |
-| No deliveries found | Check the calibration lines, the light and that the whole pitch is in view. |
+| No deliveries found | Check the calibration lines, the light and that the whole pitch is in view. In phone-only mode, look at "other movement ignored (last: ...)": it says why the ball was not counted. |
+| Stumps not found automatically | Calibrate with nobody in front of the stumps and good light; light stumps against a light wall are hard to see. Or tap them yourself. |
 | Windows says a DLL is missing | Unzip the whole zip, not just the exe. |

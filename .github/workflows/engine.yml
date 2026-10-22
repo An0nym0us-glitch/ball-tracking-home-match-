@@ -32,6 +32,9 @@ jobs:
           python3 tools/eval/run_eval.py --generate 24 --seed 101 --work out/eval_random \
             --report out/eval_random.md --gate
 
+      - name: Automatic stump calibration gate (same scenes)
+        run: python3 tools/eval/eval_autocal.py --scenes out/eval_random --gate
+
       - name: Synthetic accuracy gate (plumb LBWs must be OUT)
         run: |
           python3 tools/eval/run_eval.py --generate 12 --seed 202 --scenario plumb \

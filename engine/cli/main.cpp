@@ -5,6 +5,9 @@
 #include <string>
 #include <vector>
 
+#include <opencv2/imgcodecs.hpp>
+
+#include "pocketeye/autocal.hpp"
 #include "pocketeye/config.hpp"
 #include "pocketeye/engine.hpp"
 #include "pocketeye/result_json.hpp"
@@ -30,6 +33,9 @@ void usage() {
       --gray                   detect on brightness only (like a luma-only stream)
       --tracks-only            debugging: list raw tracks without analysing them
       --dump-candidates f.json debugging: per-frame ball candidates
+  pocketeye-cli autocal --image frame.png --config session.json [--out found.json]
+      finds the stumps in a picture (taps in the config are ignored); measures
+      the pitch length if the config has none and both stump sets are visible
   pocketeye-cli benchmark [--width 1280 --height 720 --frames 240]
   pocketeye-cli version
 )";
@@ -73,6 +79,17 @@ int cmdCalibrate(const std::map<std::string, std::string>& args) {
   writeOut(pe::calibrationToJson(cfg.calibration), args);
   for (const auto& w : cfg.calibration.warnings) std::cerr << "warning: " << w << "\n";
   return 0;
+}
+
+int cmdAutocal(const std::map<std::string, std::string>& args) {
+  json cj = readJson(args.at("config"));
+  const cv::Mat img = cv::imread(args.at("image"), cv::IMREAD_COLOR);
+  if (img.empty()) throw std::runtime_error("cannot read " + args.at("image"));
+  cj["image"] = {{"width", img.cols}, {"height", img.rows}};
+  cj.erase("taps");
+  const pe::AutoCalibration a = pe::autoCalibrate(img, pe::calibrationInputFromJson(cj));
+  writeOut(pe::autoCalibrationToJson(a), args);
+  return a.ok ? 0 : 3;
 }
 
 int cmdAnalyze(const std::map<std::string, std::string>& args) {
@@ -138,6 +155,7 @@ int main(int argc, char** argv) {
     const auto args = parseArgs(argc, argv, 2);
     if (cmd == "calibrate") return cmdCalibrate(args);
     if (cmd == "analyze") return cmdAnalyze(args);
+    if (cmd == "autocal") return cmdAutocal(args);
     if (cmd == "benchmark") {
       const int w = args.count("width") ? std::stoi(args.at("width")) : 1280;
       const int h = args.count("height") ? std::stoi(args.at("height")) : 720;

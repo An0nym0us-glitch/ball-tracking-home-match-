@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../engine/native.dart';
 import '../engine/workers.dart';
@@ -34,6 +34,7 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
   bool _wantSnapshot = false;
   final _deliveries = <Delivery>[];
   bool _engineOn = false;
+  Map<String, dynamic> _engineStats = const {};
 
   Session get s => widget.session;
 
@@ -81,6 +82,7 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
     if (_w != img.width || _h != img.height) {
       _w = img.width;
       _h = img.height;
+      _readLensFov();
       _maybeStartEngine();
     }
     if (_wantSnapshot) {
@@ -104,6 +106,7 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
       case StatsEvent():
         final ms = e.stats['engine_ms'];
         if (ms is num) _engineMs = 0.9 * _engineMs + 0.1 * ms;
+        if (e.stats.containsKey('rejected')) _engineStats = e.stats;
         if (_received % 15 == 0) setState(() {});
       case DeliveryEvent():
         if (e.json['valid'] != true) return;
@@ -120,9 +123,49 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
     if (s.isCalibrated && s.matchesSize(_w, _h)) {
       _worker?.configure(s.toConfigJson());
       _engineOn = true;
+      _lockCamera();
     } else {
       _engineOn = false;
-      if (mounted) setState(() => _status = 'Calibrate first: tap the stumps');
+      if (mounted) setState(() => _status = 'Calibrate first');
+    }
+  }
+
+  static const _lens = MethodChannel('pocketeye/lens');
+
+  /// The exact field of view from the phone's lens data (Android): the pitch
+  /// length can only be measured from the picture as well as this is known.
+  Future<void> _readLensFov() async {
+    try {
+      final r = await _lens.invokeMapMethod<String, dynamic>('backCameraFov', {'width': _w, 'height': _h});
+      final fov = (r?['hfov_deg'] as num?)?.toDouble();
+      if (fov == null || fov < 30 || fov > 120) return;
+      s.hfovDeg = fov;
+      s.hfovSigmaDeg = (r?['sigma_deg'] as num?)?.toDouble() ?? 1.5;
+      await s.save();
+    } catch (_) {
+      // Not available: the typed or default value stays.
+    }
+  }
+
+  /// Automatic exposure jumps when the bowler runs past the camera, and every
+  /// jump changes the whole picture and hides the ball. Meter and focus on the
+  /// batter's stumps once, then keep the settings fixed (re-calibrate if the
+  /// light changes a lot).
+  Future<void> _lockCamera() async {
+    final cam = _cam;
+    final a = s.taps['batter_left_base'], b = s.taps['batter_right_top'];
+    if (cam == null || a == null || b == null || _w == 0 || _h == 0) return;
+    final p = Offset(((a[0] + b[0]) / 2 / _w).clamp(0.0, 1.0), ((a[1] + b[1]) / 2 / _h).clamp(0.0, 1.0));
+    try {
+      await cam.setExposureMode(ExposureMode.auto);
+      await cam.setFocusMode(FocusMode.auto);
+      await cam.setExposurePoint(p);
+      await cam.setFocusPoint(p);
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      await cam.setExposureMode(ExposureMode.locked);
+      await cam.setFocusMode(FocusMode.locked);
+    } catch (_) {
+      // Not every phone supports metering points or locking: keep going.
     }
   }
 
@@ -170,6 +213,12 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
         ),
         Text('${_w}x$_h  |  engine ${_engineMs.toStringAsFixed(1)} ms/frame  |  frames skipped ${dropPct.toStringAsFixed(0)}%',
             style: t.bodySmall),
+        if (_engineStats.isNotEmpty)
+          Text(
+              'Balls found ${_engineStats['deliveries'] ?? 0}  |  other movement ignored ${_engineStats['rejected'] ?? 0}'
+              '${(_engineStats['last_reject'] as String? ?? '').isNotEmpty ? ' (last: ${_engineStats['last_reject']})' : ''}'
+              '${((_engineStats['analyses_waiting'] as num?) ?? 0) > 0 ? '  |  analysing...' : ''}',
+              style: t.bodySmall),
         if (dropPct > 20)
           Text('This phone is too slow for every frame. Use the laptop mode for best accuracy.',
               style: t.bodySmall!.copyWith(color: Colors.orange.shade900)),
@@ -177,7 +226,7 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
         FilledButton.icon(
           onPressed: cam == null ? null : () => _wantSnapshot = true,
           icon: const Icon(Icons.straighten),
-          label: Text(_engineOn ? 'Re-calibrate' : 'Calibrate: tap the stumps'),
+          label: Text(_engineOn ? 'Re-calibrate' : 'Calibrate'),
         ),
         const SizedBox(height: 8),
         for (final d in _deliveries)

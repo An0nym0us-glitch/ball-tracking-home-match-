@@ -30,6 +30,8 @@ typedef _YuvJpegC = Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8
     Int32, Int32, Pointer<Uint8>, Int32);
 typedef _YuvJpegD = int Function(
     Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, int, int, int, int, int, int, Pointer<Uint8>, int);
+typedef _AutoCalC = Int32 Function(Pointer<Utf8>, Pointer<Uint8>, Int32, Pointer<Utf8>, Int32);
+typedef _AutoCalD = int Function(Pointer<Utf8>, Pointer<Uint8>, int, Pointer<Utf8>, int);
 typedef _BenchC = Int32 Function(Int32, Int32, Int32, Pointer<Utf8>, Int32);
 typedef _BenchD = int Function(int, int, int, Pointer<Utf8>, int);
 typedef _AnalyzeC = Int32 Function(
@@ -57,6 +59,7 @@ class PocketEyeNative {
         _lastJpeg = lib.lookupFunction<_LastJpegC, _LastJpegD>('pe_last_frame_jpeg'),
         _yuvJpeg = lib.lookupFunction<_YuvJpegC, _YuvJpegD>('pe_yuv420_to_jpeg'),
         _benchmark = lib.lookupFunction<_BenchC, _BenchD>('pe_benchmark'),
+        _autoCal = lib.lookupFunction<_AutoCalC, _AutoCalD>('pe_auto_calibrate'),
         _analyze = lib.lookupFunction<_AnalyzeC, _AnalyzeD>('pe_analyze_video'),
         _videoOpen = lib.lookupFunction<_VideoOpenC, _VideoOpenC>('pe_video_open'),
         _videoInfo = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_video_info'),
@@ -89,6 +92,7 @@ class PocketEyeNative {
   final _LastJpegD _lastJpeg;
   final _YuvJpegD _yuvJpeg;
   final _BenchD _benchmark;
+  final _AutoCalD _autoCal;
   final _AnalyzeD _analyze;
   final _VideoOpenC _videoOpen;
   final _EngineTextD _videoInfo;
@@ -119,6 +123,20 @@ class PocketEyeNative {
       return jsonDecode(_text((b, n) => _calibrate(cfg, b, n))) as Map<String, dynamic>;
     } finally {
       calloc.free(cfg);
+    }
+  }
+
+  /// Finds the stumps in a still picture (see pe_auto_calibrate). Takes ~1 s:
+  /// call it from a worker isolate.
+  Map<String, dynamic> autoCalibrate(String configJson, Uint8List jpeg) {
+    final cfg = configJson.toNativeUtf8();
+    final img = calloc<Uint8>(jpeg.length);
+    try {
+      img.asTypedList(jpeg.length).setAll(0, jpeg);
+      return jsonDecode(_text((b, n) => _autoCal(cfg, img, jpeg.length, b, n))) as Map<String, dynamic>;
+    } finally {
+      calloc.free(cfg);
+      calloc.free(img);
     }
   }
 

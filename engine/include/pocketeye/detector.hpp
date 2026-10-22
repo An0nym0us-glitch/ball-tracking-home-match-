@@ -28,7 +28,17 @@ struct DetectorConfig {
   int min_area = 4;               // px
   int big_region_margin_px = 12;  // ignore small blobs this close to large moving regions
   double big_region_frac = 0.015;  // "large" = more than this fraction of the image
+  double chroma_gain = 2.0;       // colour (U/V) differences are about half the size of B/G/R ones
 };
+
+// A frame as cameras deliver it: full-resolution luma and half-resolution
+// interleaved chroma (CV_8UC2, U then V; empty for grey video).
+struct YuvFrame {
+  cv::Mat y;
+  cv::Mat uv;
+};
+// BGR (CV_8UC3) or grey (CV_8UC1) image -> YuvFrame (reusing out's buffers).
+void toYuvFrame(const cv::Mat& image, YuvFrame& out);
 
 // Moving-ball candidates from a three-frame difference inside the pitch corridor.
 // Candidates for frame k are produced when frame k+1 arrives.
@@ -36,8 +46,10 @@ class Detector {
  public:
   Detector(const Camera& cam, const Pitch& pitch, double ball_radius, DetectorConfig cfg = {});
 
-  // Feed 8-bit luma (CV_8UC1) or BGR (CV_8UC3) frames. Returns true when the
-  // candidates for the previous frame are ready (t_mid = its time).
+  // Feed frames in order. Returns true when the candidates for the previous
+  // frame are ready (t_mid = its time).
+  bool push(const YuvFrame& frame, double t, std::vector<Candidate>& out, double& t_mid);
+  // 8-bit luma (CV_8UC1) or BGR (CV_8UC3).
   bool push(const cv::Mat& image, double t, std::vector<Candidate>& out, double& t_mid);
   void reset();
 
@@ -46,20 +58,24 @@ class Detector {
   std::pair<double, double> expectedRadius(const Vec2& uv) const;
 
  private:
-  void detect(const cv::Mat& prev, const cv::Mat& cur, const cv::Mat& next,
-              std::vector<Candidate>& out);
+  void detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame& next, std::vector<Candidate>& out);
+  int labelBlobs(double thr);
 
   Camera cam_;
   Pitch pitch_;
   double ball_radius_;
   DetectorConfig cfg_;
   cv::Mat roi_;
+  cv::Rect roi_rect_;  // bounding box of the corridor (even coordinates); work is done inside it
+  cv::Mat roi_crop_;   // roi_(roi_rect_)
   Vec3 box_lo_, box_hi_;
-  std::deque<cv::Mat> frames_;
-  std::deque<double> times_;
-  cv::Mat d1_, d2_, diff_, bin_, labels_, stats_, centroids_;
+  YuvFrame ring_[3];   // the last three frames, oldest first after rotation
+  double times_[3] = {0, 0, 0};
+  int count_ = 0;
+  YuvFrame converted_;
+  cv::Mat d1_, d2_, diff_, cdiff_, cdiff_up_, bin_, labels_, stats_, centroids_;
   cv::Mat big_mask_;
-  std::vector<cv::Mat> channels_;
+  cv::Mat channels_[2];
 };
 
 }  // namespace pe

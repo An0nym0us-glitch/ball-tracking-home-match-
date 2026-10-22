@@ -17,6 +17,25 @@ Measured accuracy: [accuracy.md](accuracy.md).
 - [x] 4 Phone-only mode on Android 7+ (camera plugin YUV stream → engine in a background isolate, frame skipping when busy) + first-launch benchmark that suggests phone-only 60/30 fps or the laptop mode.
 - [ ] Not yet tried on the real phones (SM-G531F, Redmi Note 10S) or a real Windows laptop: only CI builds and Linux desktop tests.
 
+### First field test feedback (Redmi Note 10S, phone-only) and fixes
+- "Phone is slow": the speed test counted the once-per-ball analysis (0.5-3 s) as per-frame time. Analysis now runs on
+  a background thread (frames never wait), the detector works directly on the camera's YUV data inside the pitch
+  corridor (no colour conversion), and the speed test measures the steady per-frame cost (90th percentile).
+  720p: 12.4 -> 4 ms per frame on the CI machine.
+- "Only the first ball was noticed": in phone-only mode one failed message could leave the frame queue blocked
+  for good (and a missing value in a result could crash the worker). The worker now always answers, survives
+  errors, keeps two frames in flight and has a watchdog. Test: six balls in one stream are all found.
+- "Ball not detected": too many moving blobs (exposure jump, shake) no longer drops the frame (the threshold is
+  raised instead); the camera's exposure and focus are locked on the batter's stumps after calibration; the
+  phone shows how many moving things were ignored and why.
+- "Calibrate automatically": the engine finds both sets of stumps (thin, evenly spaced vertical bars with the
+  entered stump proportions; edges of wide objects are rejected), checks them against each other with a full
+  calibration, and measures the pitch length when both sets are visible (it asks for it when the picture is not
+  exact enough or the bowler's stumps are not visible). The phone app reads the exact field of view from
+  Android's lens data, which is what makes the length measurable.
+  Synthetic check (`tools/eval/eval_autocal.py`, CI gate): calibrated automatically in ~95 % of scenes; error at
+  the batter's stumps median 2 cm (hand taps: 2 cm); pitch length median error ~0.3 m.
+
 Working name: `pocketeye` (easy to rename).
 
 ## Main purpose: LBW decisions (confirmed)

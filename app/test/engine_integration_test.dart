@@ -46,6 +46,23 @@ void main() {
     }
   }, skip: skip, timeout: const Timeout(Duration(minutes: 3)));
 
+  test('automatic stump calibration on the empty-pitch picture', () {
+    final pic = File('$scene/calib.jpg');
+    if (!pic.existsSync()) {
+      markTestSkipped('scene has no calib.jpg (regenerate it with tools/synth/generate.py)');
+      return;
+    }
+    final cfg = jsonDecode(config()) as Map<String, dynamic>..remove('taps');
+    final r = PocketEyeNative.instance.autoCalibrate(jsonEncode(cfg), pic.readAsBytesSync());
+    expect(r['batter_found'], isTrue, reason: r['message']?.toString());
+    expect(r['ok'], isTrue, reason: r['message']?.toString());
+    final taps = (r['taps'] as Map).keys.toSet();
+    expect(taps, containsAll(['batter_left_base', 'batter_left_top', 'batter_right_base', 'batter_right_top']));
+    // The engine accepts the found points as a calibration.
+    final check = PocketEyeNative.instance.calibrate(jsonEncode({...cfg, 'taps': r['taps']}));
+    expect(check['ok'], isTrue, reason: check['error']?.toString());
+  }, skip: skip);
+
   test('video frame reader', () {
     final v = NativeVideo.open('$scene/video.mp4')!;
     expect(v.width, greaterThan(0));

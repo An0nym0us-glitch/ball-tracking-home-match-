@@ -41,6 +41,45 @@ json calibrationToJson(const CalibrationResult& c) {
           {"warnings", c.warnings}};
 }
 
+CalibrationInput calibrationInputFromJson(const json& j, bool with_image) {
+  CalibrationInput in;
+  in.length_known = false;
+  if (j.contains("pitch")) {
+    const json& p = j["pitch"];
+    if (p.contains("length_m") && !p["length_m"].is_null()) {
+      in.pitch.length = p["length_m"].get<double>();
+      in.length_known = true;
+    } else {
+      in.pitch.length = 18.0;
+    }
+    in.pitch.width = p.value("width_m", in.pitch.width);
+    in.pitch.stump_height = p.value("stump_height_m", in.pitch.stump_height);
+    in.pitch.stump_width = p.value("stump_width_m", in.pitch.stump_width);
+    in.pitch.stump_diameter = p.value("stump_diameter_m", in.pitch.stump_diameter);
+  } else {
+    in.pitch.length = 18.0;
+  }
+  if (!with_image) return in;
+  in.width = j.at("image").at("width").get<int>();
+  in.height = j.at("image").at("height").get<int>();
+  if (j.contains("camera_hint") && j["camera_hint"].contains("hfov_deg")) {
+    in.hfov_deg = j["camera_hint"]["hfov_deg"].get<double>();
+    if (j["camera_hint"].contains("hfov_sigma_deg")) in.hfov_sigma_deg = j["camera_hint"]["hfov_sigma_deg"].get<double>();
+  }
+  if (j.contains("camera_height_m") && !j["camera_height_m"].is_null()) {
+    in.camera_height_m = j["camera_height_m"].get<double>();
+  }
+  if (j.contains("camera_distance_m") && !j["camera_distance_m"].is_null()) {
+    in.camera_distance_m = j["camera_distance_m"].get<double>();
+  }
+  if (j.contains("taps")) {
+    for (const auto& [name, uv] : j["taps"].items()) {
+      in.taps.push_back({name, Vec2(uv.at(0).get<double>(), uv.at(1).get<double>())});
+    }
+  }
+  return in;
+}
+
 LoadedConfig loadConfig(const json& j) {
   LoadedConfig out;
   AnalysisConfig& a = out.engine.analysis;
@@ -57,48 +96,20 @@ LoadedConfig loadConfig(const json& j) {
   a.sigma_px = j.value("sigma_px", 1.0);
   a.mc_samples = j.value("mc_samples", 300);
 
-  bool length_known = false;
-  if (j.contains("pitch")) {
-    const json& p = j["pitch"];
-    if (p.contains("length_m") && !p["length_m"].is_null()) {
-      a.pitch.length = p["length_m"].get<double>();
-      length_known = true;
-    } else {
-      a.pitch.length = 18.0;
-    }
-    a.pitch.width = p.value("width_m", a.pitch.width);
-    a.pitch.stump_height = p.value("stump_height_m", a.pitch.stump_height);
-    a.pitch.stump_width = p.value("stump_width_m", a.pitch.stump_width);
-    a.pitch.stump_diameter = p.value("stump_diameter_m", a.pitch.stump_diameter);
-  }
+  CalibrationInput in = calibrationInputFromJson(j, false);
+  a.pitch = in.pitch;
 
   if (j.contains("camera")) {
     a.camera = cameraFromJson(j["camera"]);
-    if (!length_known) throw std::runtime_error("pitch.length_m is required with a solved camera");
+    if (!in.length_known) throw std::runtime_error("pitch.length_m is required with a solved camera");
     out.calibration.ok = true;
     out.calibration.camera = a.camera;
     out.calibration.pitch_length = a.pitch.length;
     return out;
   }
 
-  CalibrationInput in;
-  in.width = j.at("image").at("width").get<int>();
-  in.height = j.at("image").at("height").get<int>();
-  in.pitch = a.pitch;
-  in.length_known = length_known;
-  if (j.contains("camera_hint") && j["camera_hint"].contains("hfov_deg")) {
-    in.hfov_deg = j["camera_hint"]["hfov_deg"].get<double>();
-  }
-  if (j.contains("camera_height_m") && !j["camera_height_m"].is_null()) {
-    in.camera_height_m = j["camera_height_m"].get<double>();
-  }
-  if (j.contains("camera_distance_m") && !j["camera_distance_m"].is_null()) {
-    in.camera_distance_m = j["camera_distance_m"].get<double>();
-  }
   if (!j.contains("taps")) throw std::runtime_error("config needs 'taps' (or a solved 'camera')");
-  for (const auto& [name, uv] : j["taps"].items()) {
-    in.taps.push_back({name, Vec2(uv.at(0).get<double>(), uv.at(1).get<double>())});
-  }
+  in = calibrationInputFromJson(j, true);
   out.calibration = calibrateFromTaps(in);
   if (!out.calibration.ok) throw std::runtime_error("calibration failed: " + out.calibration.error);
   a.camera = out.calibration.camera;

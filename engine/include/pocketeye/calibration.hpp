@@ -26,6 +26,10 @@ struct CalibrationInput {
   bool length_known = true;  // false: pitch.length is only a starting guess and gets estimated
   std::vector<TapPoint> taps;
   std::optional<double> hfov_deg;  // horizontal field of view reported by the phone, if known
+  // How well hfov_deg is known (degrees). From the lens and sensor data ~0.5-1;
+  // a typical-phone guess ~5. Along the pitch every distance scales with the
+  // focal length, so this limits how well the pitch length can be measured.
+  std::optional<double> hfov_sigma_deg;
   // Measured height of the phone's lens above the ground. Needed when the
   // bowler-end stumps are out of frame (only the 4 batter-end taps).
   std::optional<double> camera_height_m;

@@ -13,7 +13,8 @@ class SessionScreen extends StatefulWidget {
 
 class _SessionScreenState extends State<SessionScreen> {
   final _form = GlobalKey<FormState>();
-  late final _length = TextEditingController(text: widget.session.pitchLength.toString());
+  late final _length =
+      TextEditingController(text: widget.session.lengthMeasured ? widget.session.pitchLength.toString() : '');
   late final _stumpH = TextEditingController(text: (widget.session.stumpHeight * 100).toStringAsFixed(1));
   late final _stumpW = TextEditingController(text: (widget.session.stumpWidth * 100).toStringAsFixed(1));
   late final _camH = TextEditingController(text: _cm(widget.session.cameraHeight));
@@ -36,18 +37,26 @@ class _SessionScreenState extends State<SessionScreen> {
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
     final s = widget.session;
-    final oldGeometry = [s.pitchLength, s.stumpHeight, s.stumpWidth];
-    s.pitchLength = double.parse(_length.text);
+    final oldGeometry = [s.pitchLength, s.stumpHeight, s.stumpWidth, s.lengthMeasured ? 1.0 : 0.0];
+    s.lengthMeasured = _length.text.trim().isNotEmpty;
+    if (s.lengthMeasured) s.pitchLength = double.parse(_length.text);
     s.stumpHeight = double.parse(_stumpH.text) / 100;
     s.stumpWidth = double.parse(_stumpW.text) / 100;
     s.cameraHeight = _camH.text.trim().isEmpty ? null : double.parse(_camH.text) / 100;
     s.cameraDistance = _camD.text.trim().isEmpty ? null : double.parse(_camD.text) / 100;
-    s.hfovDeg = double.parse(_fov.text);
+    final fov = double.parse(_fov.text);
+    if (fov.toStringAsFixed(0) != s.hfovDeg.toStringAsFixed(0)) {
+      s.hfovDeg = fov;
+      s.hfovSigmaDeg = null; // typed in: only a rough value
+    }
     s.ball = _ball;
     s.batter = _batter;
     await s.save();
     if (!mounted) return;
-    final changed = oldGeometry[0] != s.pitchLength || oldGeometry[1] != s.stumpHeight || oldGeometry[2] != s.stumpWidth;
+    final changed = oldGeometry[0] != s.pitchLength ||
+        oldGeometry[1] != s.stumpHeight ||
+        oldGeometry[2] != s.stumpWidth ||
+        oldGeometry[3] != (s.lengthMeasured ? 1.0 : 0.0);
     Navigator.pop(context, changed);
   }
 
@@ -66,13 +75,17 @@ class _SessionScreenState extends State<SessionScreen> {
             TextFormField(
               controller: _length,
               decoration: const InputDecoration(
-                  labelText: 'Pitch length, stumps to stumps (m)', helperText: 'Full pitch: 20.12 m'),
+                  labelText: 'Pitch length, stumps to stumps (m)',
+                  helperText: 'Full pitch: 20.12 m. Leave empty to measure it from the camera picture\n'
+                      "(the bowler's stumps must be in the picture; a tape measure is more exact).",
+                  helperMaxLines: 3),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) => _number(v, 5, 25),
+              validator: (v) => _optional(v, 5, 25),
             ),
             TextFormField(
               controller: _stumpH,
-              decoration: const InputDecoration(labelText: 'Stump height incl. bails (cm)', helperText: 'Standard: 71.1'),
+              decoration: const InputDecoration(
+                  labelText: 'Stump height, ground to top of the stumps (cm)', helperText: 'Standard: 71.1'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               validator: (v) => _number(v, 30, 100),
             ),

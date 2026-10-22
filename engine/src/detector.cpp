@@ -38,12 +38,34 @@ Detector::Detector(const Camera& cam, const Pitch& pitch, double ball_radius, De
   } else {
     roi_.setTo(255);
   }
+  cv::Rect r = cv::boundingRect(roi_);
+  if (r.area() == 0) r = cv::Rect(0, 0, cam.width, cam.height);
+  // Even coordinates so that the half-resolution chroma lines up.
+  const int x0 = r.x & ~1, y0e = r.y & ~1;
+  const int x1 = std::min(cam.width & ~1, (r.x + r.width + 1) & ~1);
+  const int y1 = std::min(cam.height & ~1, (r.y + r.height + 1) & ~1);
+  roi_rect_ = cv::Rect(x0, y0e, std::max(2, x1 - x0), std::max(2, y1 - y0e));
+  roi_crop_ = roi_(roi_rect_);
 }
 
-void Detector::reset() {
-  frames_.clear();
-  times_.clear();
+void toYuvFrame(const cv::Mat& image, YuvFrame& out) {
+  CV_Assert(image.type() == CV_8UC1 || image.type() == CV_8UC3);
+  if (image.type() == CV_8UC1) {
+    image.copyTo(out.y);
+    out.uv.release();
+    return;
+  }
+  cv::Mat yuv;
+  cv::cvtColor(image, yuv, cv::COLOR_BGR2YUV);
+  cv::Mat ch[3];
+  cv::split(yuv, ch);
+  out.y = ch[0];
+  cv::Mat uv;
+  cv::merge(std::vector<cv::Mat>{ch[1], ch[2]}, uv);
+  cv::resize(uv, out.uv, cv::Size(image.cols / 2, image.rows / 2), 0, 0, cv::INTER_AREA);
 }
+
+void Detector::reset() { count_ = 0; }
 
 std::pair<double, double> Detector::expectedRadius(const Vec2& uv) const {
   const Vec3 c = cam_.center();
@@ -57,40 +79,66 @@ std::pair<double, double> Detector::expectedRadius(const Vec2& uv) const {
 }
 
 bool Detector::push(const cv::Mat& image, double t, std::vector<Candidate>& out, double& t_mid) {
-  CV_Assert(image.type() == CV_8UC1 || image.type() == CV_8UC3);
-  frames_.push_back(image.clone());
-  times_.push_back(t);
-  if (frames_.size() > 3) {
-    frames_.pop_front();
-    times_.pop_front();
+  toYuvFrame(image, converted_);
+  return push(converted_, t, out, t_mid);
+}
+
+bool Detector::push(const YuvFrame& frame, double t, std::vector<Candidate>& out, double& t_mid) {
+  CV_Assert(frame.y.type() == CV_8UC1 && frame.y.cols == cam_.width && frame.y.rows == cam_.height);
+  // Rotate the ring: slot 2 is the newest. Only the corridor is kept.
+  std::swap(ring_[0], ring_[1]);
+  std::swap(ring_[1], ring_[2]);
+  frame.y(roi_rect_).copyTo(ring_[2].y);
+  const cv::Rect rc(roi_rect_.x / 2, roi_rect_.y / 2, roi_rect_.width / 2, roi_rect_.height / 2);
+  if (!frame.uv.empty() && frame.uv.type() == CV_8UC2 && frame.uv.cols >= rc.x + rc.width &&
+      frame.uv.rows >= rc.y + rc.height) {
+    frame.uv(rc).copyTo(ring_[2].uv);
+  } else {
+    ring_[2].uv.release();
   }
+  times_[0] = times_[1];
+  times_[1] = times_[2];
+  times_[2] = t;
+  count_ = std::min(count_ + 1, 3);
   out.clear();
-  if (frames_.size() < 3) return false;
+  if (count_ < 3) return false;
   t_mid = times_[1];
-  detect(frames_[0], frames_[1], frames_[2], out);
+  detect(ring_[0], ring_[1], ring_[2], out);
   return true;
 }
 
-void Detector::detect(const cv::Mat& prev, const cv::Mat& cur, const cv::Mat& next,
+int Detector::labelBlobs(double thr) {
+  cv::threshold(diff_, bin_, thr, 255, cv::THRESH_BINARY);
+  cv::morphologyEx(bin_, bin_, cv::MORPH_CLOSE, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
+  return cv::connectedComponentsWithStats(bin_, labels_, stats_, centroids_, 8, CV_32S);
+}
+
+// Works inside roi_rect_: blob coordinates are shifted back at the end.
+void Detector::detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame& next,
                       std::vector<Candidate>& out) {
-  cv::absdiff(cur, prev, d1_);
-  cv::absdiff(cur, next, d2_);
+  cv::absdiff(cur.y, prev.y, d1_);
+  cv::absdiff(cur.y, next.y, d2_);
   cv::min(d1_, d2_, diff_);
-  if (diff_.channels() == 3) {
+  if (!cur.uv.empty() && !prev.uv.empty() && !next.uv.empty()) {
     // Colour helps a lot: a yellow ball in front of white pads has little
-    // brightness contrast but a large blue-channel difference.
-    cv::split(diff_, channels_);
-    cv::max(channels_[0], channels_[1], diff_);
-    cv::max(diff_, channels_[2], diff_);
+    // brightness contrast but a large U (blue-difference) change.
+    cv::absdiff(cur.uv, prev.uv, d1_);
+    cv::absdiff(cur.uv, next.uv, d2_);
+    cv::min(d1_, d2_, cdiff_);
+    cv::split(cdiff_, channels_);
+    cv::max(channels_[0], channels_[1], cdiff_);
+    cdiff_.convertTo(cdiff_, CV_8U, cfg_.chroma_gain);
+    cv::resize(cdiff_, cdiff_up_, diff_.size(), 0, 0, cv::INTER_LINEAR);
+    cv::max(diff_, cdiff_up_, diff_);
   }
-  diff_.setTo(0, roi_ == 0);
+  diff_.setTo(0, roi_crop_ == 0);
 
   // Robust noise level from a subsampled histogram of the corridor.
   int hist[256] = {0};
   int count = 0;
   for (int y = 0; y < diff_.rows; y += 4) {
     const uchar* row = diff_.ptr<uchar>(y);
-    const uchar* m = roi_.ptr<uchar>(y);
+    const uchar* m = roi_crop_.ptr<uchar>(y);
     for (int x = 0; x < diff_.cols; x += 4) {
       if (!m[x]) continue;
       ++hist[row[x]];
@@ -100,12 +148,16 @@ void Detector::detect(const cv::Mat& prev, const cv::Mat& cur, const cv::Mat& ne
   int median = 0;
   for (int acc = 0; median < 255 && acc + hist[median] < count / 2; ++median) acc += hist[median];
   const double sigma = 1.4826 * std::max(median, 1);
-  const double thr = std::max(cfg_.min_threshold, cfg_.noise_k * sigma);
+  double thr = std::max(cfg_.min_threshold, cfg_.noise_k * sigma);
 
-  cv::threshold(diff_, bin_, thr, 255, cv::THRESH_BINARY);
-  cv::morphologyEx(bin_, bin_, cv::MORPH_CLOSE,
-                   cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3)));
-  const int n = cv::connectedComponentsWithStats(bin_, labels_, stats_, centroids_, 8, CV_32S);
+  int n = labelBlobs(thr);
+  // Too many blobs: a sudden change (exposure, shake, wind in leaves). A ball
+  // is usually still among the strongest changes, so look again with a higher
+  // threshold before giving up on the frame.
+  for (int retry = 0; retry < 2 && n - 1 > cfg_.max_blobs; ++retry) {
+    thr *= 2.0;
+    n = labelBlobs(thr);
+  }
   if (n - 1 > cfg_.max_blobs) return;
 
   // Very large moving regions are people close to the camera (the bowler): small
@@ -165,11 +217,11 @@ void Detector::detect(const cv::Mat& prev, const cv::Mat& cur, const cv::Mat& ne
     const double elong = std::sqrt(l_max / l_min);
     if (elong > cfg_.max_elongation) continue;
 
-    const Vec2 uv(mx, my);
     if (any_big && big_mask_.at<uchar>(std::clamp(static_cast<int>(my), 0, big_mask_.rows - 1),
                                        std::clamp(static_cast<int>(mx), 0, big_mask_.cols - 1))) {
       continue;
     }
+    const Vec2 uv(mx + roi_rect_.x, my + roi_rect_.y);
     const auto [rmin, rmax] = expectedRadius(uv);
     if (rmax <= 0) continue;
     if (radius < 0.4 * rmin - 1.0 || radius > 1.6 * rmax + 1.5) continue;

@@ -122,8 +122,9 @@ void Tracker::update(int frame, double t, const std::vector<Candidate>& cands) {
   FrameCandidates fc;
   fc.frame = frame;
   fc.t = t;
-  fc.cands = cands;
-  fc.used.assign(cands.size(), false);
+  // Candidates come strongest first.
+  fc.cands.assign(cands.begin(), cands.begin() + std::min<size_t>(cands.size(), cfg_.max_frame_candidates));
+  fc.used.assign(fc.cands.size(), false);
   frames_.push_back(std::move(fc));
   if (++since_search_ >= 4) {
     since_search_ = 0;

@@ -42,9 +42,10 @@ class VideoAnalysisJob {
 sealed class WorkerEvent {}
 
 class StatusEvent extends WorkerEvent {
-  StatusEvent(this.text, {this.connected = false});
+  StatusEvent(this.text, {this.connected = false, this.hfovDeg});
   final String text;
   final bool connected;
+  final double? hfovDeg; // camera field of view reported by the phone
 }
 
 class PreviewEvent extends WorkerEvent {
@@ -73,7 +74,8 @@ class ErrorEvent extends WorkerEvent {
 WorkerEvent _decode(Map msg) {
   switch (msg['type']) {
     case 'status':
-      return StatusEvent(msg['text'] as String, connected: msg['connected'] == true);
+      return StatusEvent(msg['text'] as String,
+          connected: msg['connected'] == true, hfovDeg: (msg['hfov'] as num?)?.toDouble());
     case 'preview':
       return PreviewEvent((msg['jpeg'] as TransferableTypedData).materialize().asUint8List(), msg['w'] as int,
           msg['h'] as int,
@@ -113,11 +115,19 @@ abstract class _LiveWorker {
         _events.add(_decode(msg));
       }
     });
-    _isolate = await Isolate.spawn(entry, [rp.sendPort, arg]);
+    // An unexpected error in one message must not stop the worker for good:
+    // keep it running and show the error.
+    final errors = ReceivePort();
+    errors.listen((e) {
+      if (!_events.isClosed) _events.add(ErrorEvent('Worker error: ${e is List && e.isNotEmpty ? e.first : e}'));
+      _onWorkerError();
+    });
+    _isolate = await Isolate.spawn(entry, [rp.sendPort, arg], errorsAreFatal: false, onError: errors.sendPort);
     await _ready.future;
   }
 
   void _onMessage(Map msg) {}
+  void _onWorkerError() {}
 
   void send(Map<String, Object?> cmd) => _send?.send(cmd);
 
@@ -177,8 +187,8 @@ class _ServerState {
 
   int get nowUs => _sw.elapsedMicroseconds;
 
-  void status(String text, {bool connected = false}) =>
-      toUi.send({'type': 'status', 'text': text, 'connected': connected});
+  void status(String text, {bool connected = false, double? hfov}) =>
+      toUi.send({'type': 'status', 'text': text, 'connected': connected, 'hfov': ?hfov});
 
   Future<void> run(ReceivePort commands) async {
     commands.listen((msg) => _command(msg as Map));
@@ -190,7 +200,7 @@ class _ServerState {
       return;
     }
     status('Waiting for the phone on port $port');
-    Timer.periodic(const Duration(seconds: 1), (_) => _ping());
+    Timer.periodic(const Duration(milliseconds: 500), (_) => _ping());
     await for (final sock in server) {
       if (phone != null) {
         sock.destroy(); // one camera at a time
@@ -250,7 +260,8 @@ class _ServerState {
           w = (hello['width'] as num).toInt();
           h = (hello['height'] as num).toInt();
           sock.write('${jsonEncode({'type': 'hello_ok'})}\n');
-          status('Phone connected: ${hello['device'] ?? ''} ${w}x$h @ ${hello['fps']} fps', connected: true);
+          status('Phone connected: ${hello['device'] ?? ''} ${w}x$h @ ${hello['fps']} fps',
+              connected: true, hfov: (hello['hfov'] as num?)?.toDouble());
         }
         for (var m = parser.next(); m != null; m = parser.next()) {
           if (m.$1 == 'frame') {
@@ -287,6 +298,17 @@ class _ServerState {
 
   void _ping() {
     phone?.write('${jsonEncode({'type': 'ping', 't': nowUs})}\n');
+    // Analyses run in the background: pick up results even while no frames arrive.
+    final e = engine;
+    if (e != null) {
+      try {
+        for (final res in e.pollResults()) {
+          _delivery(res);
+        }
+      } catch (err) {
+        toUi.send({'type': 'error', 'text': 'Result error: $err'});
+      }
+    }
   }
 
   void _pong(int laptopSentUs, int phoneUs) {
@@ -321,7 +343,11 @@ class _ServerState {
       avgEngineMs = avgEngineMs == 0 ? processMs : 0.95 * avgEngineMs + 0.05 * processMs;
       if (rc == -2) sizeMismatch++;
       for (final res in e.pollResults()) {
-        _delivery(res);
+        try {
+          _delivery(res);
+        } catch (err) {
+          toUi.send({'type': 'error', 'text': 'Could not show a delivery: $err'});
+        }
       }
     }
     final now = DateTime.now();
@@ -371,18 +397,36 @@ class PhoneEngineWorker extends _LiveWorker {
     return w;
   }
 
-  bool busy = false;
+  /// Frames sent and not yet answered. Two in flight absorb timing jitter
+  /// without building up a delay.
+  int _inFlight = 0;
+  static const _maxInFlight = 2;
+  final _sinceAnswer = Stopwatch();
 
   @override
   void _onMessage(Map msg) {
-    if (msg['type'] == 'stats') busy = false;
+    if (msg['type'] == 'stats' && _inFlight > 0) {
+      _inFlight--;
+      _sinceAnswer.reset();
+    }
   }
 
-  /// Sends a camera frame if the worker is idle; returns false if dropped.
+  @override
+  void _onWorkerError() => _inFlight = 0;
+
+  /// Sends a camera frame if the worker has room; returns false if dropped.
   bool offer(Uint8List y, Uint8List u, Uint8List v, int width, int height, int yStride, int uvStride,
       int uvPixelStride, double t) {
-    if (busy || _send == null) return false;
-    busy = true;
+    if (_send == null) return false;
+    // Safety net: never stay blocked if an answer got lost.
+    if (_inFlight > 0 && _sinceAnswer.elapsedMilliseconds > 3000) _inFlight = 0;
+    if (_inFlight >= _maxInFlight) return false;
+    if (_inFlight == 0) {
+      _sinceAnswer
+        ..reset()
+        ..start();
+    }
+    _inFlight++;
     send({
       'cmd': 'frame',
       'y': TransferableTypedData.fromList([y]),
@@ -406,7 +450,45 @@ void _phoneMain(List<Object> args) {
   NativeEngine? engine;
   final ring = ListQueue<(double, Uint8List)>();
   var frames = 0;
-  var lastStats = 0.0;
+  var lastStats = -10.0;
+  var engineMs = 0.0;
+
+  void handleFrame(Map msg) {
+    final e = engine;
+    if (e == null) return;
+    final t = msg['t'] as double;
+    final y = (msg['y'] as TransferableTypedData).materialize().asUint8List();
+    final u = (msg['u'] as TransferableTypedData).materialize().asUint8List();
+    final v = (msg['v'] as TransferableTypedData).materialize().asUint8List();
+    final sw = Stopwatch()..start();
+    final rc = e.pushYuv420(y, u, v, msg['w'] as int, msg['h'] as int, msg['ys'] as int, msg['uvs'] as int,
+        msg['uvps'] as int, t);
+    engineMs = sw.elapsedMicroseconds / 1000.0;
+    if (rc == -2) {
+      toUi.send({'type': 'error', 'text': 'Camera size changed: calibrate again.'});
+      return;
+    }
+    final jpeg = e.lastFrameJpeg(maxWidth: 400, quality: 60);
+    if (jpeg != null) ring.addLast((t, jpeg));
+    while (ring.isNotEmpty && ring.first.$1 < t - 8.0) {
+      ring.removeFirst();
+    }
+    for (final res in e.pollResults()) {
+      try {
+        final d = Delivery(res, index: 0);
+        final sel = ring.where((f) => f.$1 >= d.tFirst - 0.4 && f.$1 <= d.tLast + 0.6).toList();
+        toUi.send({
+          'type': 'delivery',
+          'json': jsonEncode(res),
+          'times': [for (final f in sel) f.$1],
+          'frames': [for (final f in sel) TransferableTypedData.fromList([f.$2])],
+        });
+      } catch (err) {
+        toUi.send({'type': 'error', 'text': 'Could not show a delivery: $err'});
+      }
+    }
+  }
+
   rp.listen((m) {
     final msg = m as Map;
     switch (msg['cmd']) {
@@ -414,50 +496,33 @@ void _phoneMain(List<Object> args) {
         try {
           engine?.dispose();
           engine = NativeEngine.create(msg['json'] as String);
+          ring.clear();
           toUi.send({'type': 'status', 'text': 'Tracking: bowl when ready', 'connected': true});
         } catch (e) {
           engine = null;
           toUi.send({'type': 'error', 'text': 'Engine: $e'});
         }
       case 'frame':
-        final e = engine;
         final t = msg['t'] as double;
-        var ms = 0.0;
-        if (e != null) {
-          final y = (msg['y'] as TransferableTypedData).materialize().asUint8List();
-          final u = (msg['u'] as TransferableTypedData).materialize().asUint8List();
-          final v = (msg['v'] as TransferableTypedData).materialize().asUint8List();
-          final sw = Stopwatch()..start();
-          e.pushYuv420(y, u, v, msg['w'] as int, msg['h'] as int, msg['ys'] as int, msg['uvs'] as int,
-              msg['uvps'] as int, t);
-          ms = sw.elapsedMicroseconds / 1000.0;
-          final jpeg = e.lastFrameJpeg(maxWidth: 480, quality: 65);
-          if (jpeg != null) ring.addLast((t, jpeg));
-          while (ring.isNotEmpty && ring.first.$1 < t - 8.0) {
-            ring.removeFirst();
+        try {
+          handleFrame(msg);
+        } catch (err) {
+          toUi.send({'type': 'error', 'text': 'Frame error: $err'});
+        } finally {
+          frames++;
+          // Always answer: it also tells the UI the worker has room again.
+          Map<String, dynamic> extra = const {};
+          if (t - lastStats > 1.0 && engine != null) {
+            try {
+              extra = engine!.stats();
+            } catch (_) {}
+            lastStats = t;
           }
-          for (final res in e.pollResults()) {
-            final d = Delivery(res, index: 0);
-            final sel = ring.where((f) => f.$1 >= d.tFirst - 0.4 && f.$1 <= d.tLast + 0.6).toList();
-            toUi.send({
-              'type': 'delivery',
-              'json': jsonEncode(res),
-              'times': [for (final f in sel) f.$1],
-              'frames': [for (final f in sel) TransferableTypedData.fromList([f.$2])],
-            });
-          }
+          toUi.send({
+            'type': 'stats',
+            'stats': {'frames': frames, 'engine_ms': engineMs, ...extra},
+          });
         }
-        frames++;
-        // Always answer: it also tells the UI the worker is free again.
-        toUi.send({
-          'type': 'stats',
-          'stats': {
-            'frames': frames,
-            'engine_ms': ms,
-            if (e != null && t - lastStats > 1.0) ...e.stats(),
-          }
-        });
-        if (t - lastStats > 1.0) lastStats = t;
       case 'stop':
         engine?.dispose();
         Isolate.exit();
