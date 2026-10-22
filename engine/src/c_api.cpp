@@ -396,6 +396,28 @@ int32_t pe_debug_json(pe_engine* e, char* buf, int32_t buf_len) {
   }
 }
 
+int32_t pe_live_ball_json(pe_engine* e, char* buf, int32_t buf_len) {
+  if (!e) return 0;
+  try {
+    const pe::LiveBall b = e->engine->liveBall();
+    auto r1 = [](double v) { return std::round(v * 10) / 10; };
+    json j = {{"visible", b.visible}};
+    if (b.visible) {
+      json trail = json::array();
+      for (const pe::Vec2& p : b.trail) trail.push_back({r1(p.x()), r1(p.y())});
+      j["predicted"] = b.predicted;
+      j["t"] = b.t;
+      j["uv"] = {r1(b.uv.x()), r1(b.uv.y())};
+      j["r"] = r1(b.radius_px);
+      j["v"] = {r1(b.velocity.x()), r1(b.velocity.y())};
+      j["trail"] = trail;
+    }
+    return copyOut(j.dump(), buf, buf_len);
+  } catch (...) {
+    return 0;
+  }
+}
+
 int32_t pe_benchmark(int32_t width, int32_t height, int32_t frames, char* buf, int32_t buf_len) {
   try {
     return copyOut(pe::runBenchmark(width, height, frames).dump(), buf, buf_len);

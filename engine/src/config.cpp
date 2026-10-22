@@ -99,6 +99,12 @@ LoadedConfig loadConfig(const json& j) {
   a.release_offset_m = j.value("release_offset_m", 0.8);
   a.sigma_px = j.value("sigma_px", 1.0);
   a.mc_samples = j.value("mc_samples", 300);
+  // "jpeg_stream": every frame arrives as its own JPEG (old-phone camera app).
+  const std::string source = j.value("source", "camera");
+  if (source != "camera" && source != "jpeg_stream") {
+    throw std::runtime_error("source must be camera or jpeg_stream");
+  }
+  if (source == "jpeg_stream") out.engine.detector = forJpegStream(out.engine.detector);
 
   CalibrationInput in = calibrationInputFromJson(j, false);
   a.pitch = in.pitch;

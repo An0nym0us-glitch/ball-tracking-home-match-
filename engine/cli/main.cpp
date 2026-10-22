@@ -31,6 +31,8 @@ void usage() {
       --no-shot                batter offered no shot (allows impact outside off)
       --keep-rejected          also list tracks that were not deliveries
       --gray                   detect on brightness only (like a luma-only stream)
+      --jpeg-stream            frames were each compressed as a JPEG (the old-phone
+                               camera app's stream to the laptop)
       --tracks-only            debugging: list raw tracks without analysing them
       --dump-candidates f.json debugging: per-frame ball candidates
   pocketeye-cli autocal --image frame.png --config session.json [--out found.json]
@@ -47,7 +49,7 @@ std::map<std::string, std::string> parseArgs(int argc, char** argv, int start) {
     std::string k = argv[i];
     if (k.rfind("--", 0) != 0) throw std::runtime_error("unexpected argument: " + k);
     k = k.substr(2);
-    if (k == "no-shot" || k == "keep-rejected" || k == "tracks-only" || k == "gray") {
+    if (k == "no-shot" || k == "keep-rejected" || k == "tracks-only" || k == "gray" || k == "jpeg-stream") {
       a[k] = "1";
     } else {
       if (i + 1 >= argc) throw std::runtime_error("missing value for --" + k);
@@ -97,6 +99,7 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
   if (args.count("ball")) cj["ball"] = args.at("ball");
   if (args.count("batter")) cj["batter"] = args.at("batter");
   if (args.count("no-shot")) cj["no_shot_offered"] = true;
+  if (args.count("jpeg-stream")) cj["source"] = "jpeg_stream";
   pe::LoadedConfig cfg = pe::loadConfig(cj);
   cfg.engine.keep_rejected = args.count("keep-rejected") > 0 || args.count("tracks-only") > 0;
   cfg.engine.skip_analysis = args.count("tracks-only") > 0;

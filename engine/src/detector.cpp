@@ -66,6 +66,12 @@ void toYuvFrame(const cv::Mat& image, YuvFrame& out) {
   cv::resize(uv, out.uv, cv::Size(image.cols / 2, image.rows / 2), 0, 0, cv::INTER_AREA);
 }
 
+DetectorConfig forJpegStream(DetectorConfig cfg) {
+  cfg.presmooth = 3;
+  cfg.chroma_gain = 1.0;
+  return cfg;
+}
+
 void Detector::reset() { count_ = 0; }
 
 std::pair<double, double> Detector::expectedRadius(const Vec2& uv) const {
@@ -96,6 +102,9 @@ bool Detector::push(const YuvFrame& frame, double t, std::vector<Candidate>& out
     frame.uv(rc).copyTo(ring_[2].uv);
   } else {
     ring_[2].uv.release();
+  }
+  if (cfg_.presmooth > 1) {
+    cv::GaussianBlur(ring_[2].y, ring_[2].y, cv::Size(cfg_.presmooth | 1, cfg_.presmooth | 1), 0);
   }
   times_[0] = times_[1];
   times_[1] = times_[2];

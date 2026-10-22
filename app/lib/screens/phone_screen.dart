@@ -14,6 +14,7 @@ import '../engine/native.dart';
 import '../engine/workers.dart';
 import '../model/delivery.dart';
 import '../model/session.dart';
+import '../widgets/engine_overlay.dart';
 import '../widgets/result_card.dart';
 import 'calibration_screen.dart';
 import 'delivery_screen.dart';
@@ -425,53 +426,11 @@ class _DebugView extends StatelessWidget {
         aspectRatio: w / h,
         child: Stack(fit: StackFit.expand, children: [
           Image.memory(e.jpeg, fit: BoxFit.fill, gaplessPlayback: true),
-          CustomPaint(painter: _DebugPainter(e.info, w, h)),
+          CustomPaint(painter: EngineOverlayPainter(width: w, height: h, debug: e.info)),
         ]),
       ),
       Text('Green: area watched for the ball. Yellow: possible balls in the last second ($n). '
           'A thrown ball should leave a line of yellow dots.'),
     ]);
   }
-}
-
-class _DebugPainter extends CustomPainter {
-  _DebugPainter(this.info, this.w, this.h);
-  final Map<String, dynamic> info;
-  final double w, h;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final sx = size.width / w, sy = size.height / h;
-    final corridor = info['corridor'] as List? ?? const [];
-    if (corridor.length > 2) {
-      final path = Path();
-      for (var i = 0; i < corridor.length; ++i) {
-        final p = corridor[i] as List;
-        final o = Offset((p[0] as num) * sx, (p[1] as num) * sy);
-        i == 0 ? path.moveTo(o.dx, o.dy) : path.lineTo(o.dx, o.dy);
-      }
-      path.close();
-      canvas.drawPath(
-          path,
-          Paint()
-            ..color = Colors.greenAccent
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5);
-    }
-    final now = (info['t'] as num?)?.toDouble() ?? 0;
-    for (final c in info['candidates'] as List? ?? const []) {
-      final v = c as List;
-      final age = (now - (v[0] as num)).clamp(0.0, 1.0);
-      canvas.drawCircle(
-          Offset((v[1] as num) * sx, (v[2] as num) * sy),
-          ((v[3] as num) * sx).clamp(2.0, 12.0) + 2,
-          Paint()
-            ..color = Colors.yellowAccent.withValues(alpha: 1.0 - 0.8 * age)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DebugPainter old) => old.info != info;
 }

@@ -29,7 +29,15 @@ struct DetectorConfig {
   int big_region_margin_px = 12;  // ignore small blobs this close to large moving regions
   double big_region_frac = 0.015;  // "large" = more than this fraction of the image
   double chroma_gain = 2.0;       // colour (U/V) differences are about half the size of B/G/R ones
+  int presmooth = 0;              // Gaussian kernel (px, odd) on brightness before differencing; 0 = none
 };
+
+// Frames that were each compressed as a separate JPEG (the old-phone camera
+// app streaming to the laptop): every frame carries fresh 8x8-block noise,
+// strongest in the colour channels. Smoothing brightness a little and giving
+// colour normal weight finds more balls there (docs/accuracy.md); on video
+// straight from the camera it does not help, so it is only used for such streams.
+DetectorConfig forJpegStream(DetectorConfig cfg);
 
 // A frame as cameras deliver it: full-resolution luma and half-resolution
 // interleaved chroma (CV_8UC2, U then V; empty for grey video).

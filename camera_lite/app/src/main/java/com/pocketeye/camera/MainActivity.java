@@ -7,6 +7,7 @@ import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.hardware.Camera;
 import android.os.Build;
 import android.os.Bundle;
@@ -24,6 +25,7 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -442,6 +444,73 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
                 ui.postDelayed(hideCard, 20000);
             }
         });
+    }
+
+    /**
+     * The laptop is tracking (calibrated): automatic exposure jumps when the bowler
+     * runs past the camera, and every jump changes the whole picture and hides the
+     * ball. Meter and focus on the batter's stumps once, then keep the settings.
+     */
+    @Override
+    public void onLock(final float x, final float y) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                lockCamera(x, y);
+            }
+        });
+    }
+
+    private void lockCamera(float x, float y) {
+        final Camera cam = camera;
+        if (cam == null) return;
+        try {
+            Camera.Parameters p = cam.getParameters();
+            // Areas are in the sensor picture (-1000..1000); the sent picture may be turned 180 degrees.
+            float sx = rotate180 ? 1 - x : x, sy = rotate180 ? 1 - y : y;
+            int cx = Math.round(sx * 2000 - 1000), cy = Math.round(sy * 2000 - 1000);
+            Rect r = new Rect(clampArea(cx - 100), clampArea(cy - 100), clampArea(cx + 100), clampArea(cy + 100));
+            List<Camera.Area> area = Collections.singletonList(new Camera.Area(r, 1000));
+            if (p.isAutoExposureLockSupported()) p.setAutoExposureLock(false);
+            if (p.isAutoWhiteBalanceLockSupported()) p.setAutoWhiteBalanceLock(false);
+            if (p.getMaxNumMeteringAreas() > 0) p.setMeteringAreas(area);
+            List<String> focus = p.getSupportedFocusModes();
+            final boolean canFocus = focus != null && focus.contains(Camera.Parameters.FOCUS_MODE_AUTO);
+            if (canFocus) {
+                p.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+                if (p.getMaxNumFocusAreas() > 0) p.setFocusAreas(area);
+            }
+            cam.setParameters(p);
+            if (canFocus) {
+                cam.autoFocus(new Camera.AutoFocusCallback() {
+                    @Override
+                    public void onAutoFocus(boolean success, Camera c) {
+                        // FOCUS_MODE_AUTO keeps this focus until autoFocus is called again.
+                    }
+                });
+            }
+            ui.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (camera != cam) return;
+                    try {
+                        Camera.Parameters q = cam.getParameters();
+                        if (q.isAutoExposureLockSupported()) q.setAutoExposureLock(true);
+                        if (q.isAutoWhiteBalanceLockSupported()) q.setAutoWhiteBalanceLock(true);
+                        cam.setParameters(q);
+                        setStatus("Brightness and focus locked on the stumps. " + connectionText());
+                    } catch (Exception e) {
+                        // Not every phone supports locking: keep streaming.
+                    }
+                }
+            }, 1500);
+        } catch (Exception e) {
+            // Not every phone supports metering areas or locking: keep streaming.
+        }
+    }
+
+    private static int clampArea(int v) {
+        return Math.max(-1000, Math.min(1000, v));
     }
 
     private final Runnable hideCard = new Runnable() {

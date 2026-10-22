@@ -65,6 +65,11 @@ PE_API int32_t pe_yuv420_to_jpeg(const uint8_t* y, const uint8_t* u, const uint8
  * "corridor": [[u, v], ...] (outline of the watched area), "candidates":
  * [[t, u, v, radius, strength], ...] (ball candidates of the last second)}. */
 PE_API int32_t pe_debug_json(pe_engine* e, char* buf, int32_t buf_len);
+/* The ball being followed right now, for drawing on the live picture:
+ * {"visible": false} or {"visible": true, "predicted": bool, "t", "uv": [u, v],
+ * "r", "v": [du/dt, dv/dt], "trail": [[u, v], ...]} in picture pixels at the
+ * latest frame. */
+PE_API int32_t pe_live_ball_json(pe_engine* e, char* buf, int32_t buf_len);
 
 /* End of stream: closes open tracks. */
 PE_API void pe_finish(pe_engine* e);

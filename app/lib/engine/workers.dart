@@ -49,10 +49,12 @@ class StatusEvent extends WorkerEvent {
 }
 
 class PreviewEvent extends WorkerEvent {
-  PreviewEvent(this.jpeg, this.width, this.height, {this.snapshot = false});
+  PreviewEvent(this.jpeg, this.width, this.height, {this.snapshot = false, this.ball, this.debug});
   final Uint8List jpeg;
   final int width, height;
   final bool snapshot;
+  final Map<String, dynamic>? ball; // the ball followed in this picture (see pe_live_ball_json)
+  final Map<String, dynamic>? debug; // what the detector sees (see pe_debug_json), when asked for
 }
 
 class StatsEvent extends WorkerEvent {
@@ -93,7 +95,9 @@ WorkerEvent _decode(Map msg) {
     case 'preview':
       return PreviewEvent((msg['jpeg'] as TransferableTypedData).materialize().asUint8List(), msg['w'] as int,
           msg['h'] as int,
-          snapshot: msg['snapshot'] == true);
+          snapshot: msg['snapshot'] == true,
+          ball: msg['ball'] == null ? null : jsonDecode(msg['ball'] as String) as Map<String, dynamic>,
+          debug: msg['debug'] == null ? null : jsonDecode(msg['debug'] as String) as Map<String, dynamic>);
     case 'stats':
       return StatsEvent((msg['stats'] as Map).cast<String, dynamic>());
     case 'delivery':
@@ -173,6 +177,9 @@ class LiveServer extends _LiveWorker {
   }
 
   void requestSnapshot() => send({'cmd': 'snapshot'});
+
+  /// Adds what the detector sees (watched area, ball candidates) to the pictures.
+  void showDebug(bool on) => send({'cmd': 'debug', 'on': on});
 }
 
 void _serverMain(List<Object> args) {
@@ -203,6 +210,7 @@ class _ServerState {
   double avgEngineMs = 0;
   DateTime lastPreview = DateTime(0);
   DateTime lastStats = DateTime(0);
+  bool debugOn = false;
 
   int get nowUs => _sw.elapsedMicroseconds;
 
@@ -235,8 +243,9 @@ class _ServerState {
         try {
           engine?.dispose();
           lastConfig = msg['json'] as String;
-          engine = NativeEngine.create(lastConfig!);
+          engine = NativeEngine.create(_jpegStream(lastConfig!));
           status('Tracking: bowl when ready', connected: phone != null);
+          _sendLock();
         } catch (e) {
           engine = null;
           toUi.send({'type': 'error', 'text': 'Engine: $e'});
@@ -251,6 +260,8 @@ class _ServerState {
             'snapshot': true,
           });
         }
+      case 'debug':
+        debugOn = msg['on'] == true;
       case 'stop':
         phone?.destroy();
         engine?.dispose();
@@ -281,6 +292,7 @@ class _ServerState {
           sock.write('${jsonEncode({'type': 'hello_ok'})}\n');
           status('Phone connected: ${hello['device'] ?? ''} ${w}x$h @ ${hello['fps']} fps',
               connected: true, hfov: (hello['hfov'] as num?)?.toDouble());
+          if (engine != null) _sendLock();
         }
         for (var m = parser.next(); m != null; m = parser.next()) {
           if (m.$1 == 'frame') {
@@ -296,6 +308,29 @@ class _ServerState {
     }, onDone: _disconnected, onError: (_) => _disconnected());
   }
 
+  /// The phone sends every frame as its own JPEG: the engine has a detector
+  /// setting for that (see forJpegStream in the engine).
+  static String _jpegStream(String configJson) =>
+      jsonEncode((jsonDecode(configJson) as Map<String, dynamic>)..['source'] = 'jpeg_stream');
+
+  /// Tracking is on: the phone meters brightness and focus on the batter's
+  /// stumps and then keeps them fixed (automatic exposure jumps when the bowler
+  /// runs past the camera and hides the ball).
+  void _sendLock() {
+    final p = phone, cfg = lastConfig;
+    if (p == null || cfg == null || w == null || h == null) return;
+    var x = 0.5, y = 0.5;
+    try {
+      final taps = (jsonDecode(cfg) as Map<String, dynamic>)['taps'] as Map<String, dynamic>?;
+      final a = taps?['batter_left_base'] as List?, b = taps?['batter_right_top'] as List?;
+      if (a != null && b != null) {
+        x = (((a[0] as num) + (b[0] as num)) / 2 / w!).clamp(0.0, 1.0);
+        y = (((a[1] as num) + (b[1] as num)) / 2 / h!).clamp(0.0, 1.0);
+      }
+    } catch (_) {}
+    p.write('${jsonEncode({'type': 'lock', 'x': x, 'y': y})}\n');
+  }
+
   void _disconnected() {
     // Flush deliveries still waiting for more frames.
     final e = engine;
@@ -307,7 +342,7 @@ class _ServerState {
       // A finished engine accepts no more frames: start a fresh one for the next connection.
       if (lastConfig != null) {
         e.dispose();
-        engine = NativeEngine.create(lastConfig!);
+        engine = NativeEngine.create(_jpegStream(lastConfig!));
       }
     }
     phone = null;
@@ -370,9 +405,24 @@ class _ServerState {
       }
     }
     final now = DateTime.now();
-    if (now.difference(lastPreview).inMilliseconds > 250) {
+    // About 15 pictures a second: smooth enough to watch the marker follow the ball.
+    if (now.difference(lastPreview).inMilliseconds >= 60) {
       lastPreview = now;
-      toUi.send({'type': 'preview', 'jpeg': TransferableTypedData.fromList([jpeg]), 'w': w ?? 0, 'h': h ?? 0});
+      String? ball, debug;
+      if (e != null) {
+        try {
+          ball = jsonEncode(e.liveBall());
+          if (debugOn) debug = jsonEncode(e.debug());
+        } catch (_) {}
+      }
+      toUi.send({
+        'type': 'preview',
+        'jpeg': TransferableTypedData.fromList([jpeg]),
+        'w': w ?? 0,
+        'h': h ?? 0,
+        'ball': ?ball,
+        'debug': ?debug,
+      });
     }
     if (now.difference(lastStats).inMilliseconds > 1000) {
       lastStats = now;

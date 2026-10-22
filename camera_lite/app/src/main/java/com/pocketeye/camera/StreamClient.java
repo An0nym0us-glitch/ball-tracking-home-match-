@@ -32,6 +32,9 @@ public final class StreamClient {
 
         void onResult(String text, String decision);
 
+        /** Meter brightness and focus at (x, y) (0..1 in the sent picture), then keep them fixed. */
+        void onLock(float x, float y);
+
         void onClosed(String reason);
     }
 
@@ -267,6 +270,8 @@ public final class StreamClient {
                         sb.append(lines.optString(i));
                     }
                     listener.onResult(sb.toString(), msg.optString("decision", ""));
+                } else if ("lock".equals(type)) {
+                    listener.onLock((float) msg.optDouble("x", 0.5), (float) msg.optDouble("y", 0.5));
                 } else if ("error".equals(type)) {
                     fail(msg.optString("text", "laptop refused the connection"));
                     return;

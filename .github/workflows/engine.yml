@@ -32,6 +32,11 @@ jobs:
           python3 tools/eval/run_eval.py --generate 24 --seed 101 --work out/eval_random \
             --report out/eval_random.md --gate
 
+      - name: "Synthetic accuracy gate (old-phone JPEG stream to the laptop, same scenes)"
+        run: |
+          python3 tools/eval/run_eval.py --work out/eval_random --jpeg-quality 70 \
+            --report out/eval_jpeg.md --gate
+
       - name: Automatic stump calibration gate (same scenes)
         run: python3 tools/eval/eval_autocal.py --scenes out/eval_random --gate
 

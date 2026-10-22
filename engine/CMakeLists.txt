@@ -50,6 +50,7 @@ set(PE_SOURCES
   src/fit.cpp
   src/detector.cpp
   src/tracker.cpp
+  src/live.cpp
   src/analysis.cpp
   src/lbw.cpp
   src/engine.cpp

@@ -56,11 +56,33 @@ GATES_PRACTICE = {"found_rate": 0.7, "wrong_lbw_rate": 0.0, "wrong_stumps": 0, "
                   "line_at_stumps_cm": (7, 70)}
 
 
-def run_cli(cli: str, scene: str) -> dict | None:
-    out = os.path.join(scene, "result.json")
-    cmd = [cli, "analyze", "--video", os.path.join(scene, "video.mp4"), "--config",
+def jpeg_frames(scene: str, quality: int) -> str:
+    """The scene video as the old-phone camera app streams it: every frame a
+    separate JPEG (fresh compression noise per frame). Returns the frame pattern."""
+    import cv2
+    d = os.path.join(scene, f"jpeg_q{quality}")
+    pattern = os.path.join(d, "frame_%05d.jpg")
+    if os.path.exists(os.path.join(d, "done")):
+        return pattern
+    os.makedirs(d, exist_ok=True)
+    cap = cv2.VideoCapture(os.path.join(scene, "video.mp4"))
+    i = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        cv2.imwrite(pattern % i, frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        i += 1
+    open(os.path.join(d, "done"), "w").close()
+    return pattern
+
+
+def run_cli(cli: str, scene: str, jpeg_quality: int = 0) -> dict | None:
+    out = os.path.join(scene, "result.json" if not jpeg_quality else f"result_q{jpeg_quality}.json")
+    video = jpeg_frames(scene, jpeg_quality) if jpeg_quality else os.path.join(scene, "video.mp4")
+    cmd = [cli, "analyze", "--video", video, "--config",
            os.path.join(scene, "config.json"), "--timestamps", os.path.join(scene, "timestamps.txt"),
-           "--out", out]
+           "--out", out] + (["--jpeg-stream"] if jpeg_quality else [])
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if p.returncode != 0:
         return {"error": p.stderr.strip()}
@@ -226,6 +248,8 @@ def main():
     ap.add_argument("--report", help="write a Markdown summary here")
     ap.add_argument("--json", help="write per-scene rows and the summary here")
     ap.add_argument("--gate", action="store_true", help="exit 1 if the CI limits are exceeded")
+    ap.add_argument("--jpeg-quality", type=int, default=0,
+                    help="analyse every frame re-encoded as a JPEG of this quality (the old-phone stream)")
     a = ap.parse_args()
 
     if a.generate:
@@ -233,10 +257,11 @@ def main():
         generate.generate(a.work, a.generate, a.seed, a.preset, a.workers, scenario=a.scenario)
     scenes = sorted(os.path.join(a.work, d) for d in os.listdir(a.work) if d.startswith("scene_"))
     with ThreadPoolExecutor(a.workers) as ex:
-        results = list(ex.map(lambda sc: run_cli(a.cli, sc), scenes))
+        results = list(ex.map(lambda sc: run_cli(a.cli, sc, a.jpeg_quality), scenes))
     rows = [evaluate_scene(sc, r) for sc, r in zip(scenes, results)]
     summary = summarise(rows)
-    md = report_md(summary, rows, a.preset + ("" if a.scenario == "random" else f", scenario {a.scenario}"))
+    md = report_md(summary, rows, a.preset + ("" if a.scenario == "random" else f", scenario {a.scenario}")
+                   + (f", JPEG quality {a.jpeg_quality} per frame" if a.jpeg_quality else ""))
     print(md)
     if a.report:
         with open(a.report, "w") as f:

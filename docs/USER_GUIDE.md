@@ -85,7 +85,18 @@ Every mode opens the same calibration screen on a still picture from the camera:
 5. Bowl. Each delivery appears on the laptop as a card, and the same result card shows on the phone a moment later.
 6. Click a card for the replay (slow motion, **Zoom on batter**), the pitch map and all measurements.
 
-**Quality** on the phone sets the picture size: 1280×720 is the most accurate, and 960×540 or 640×480 helps on weak Wi-Fi. After changing it, calibrate again.
+While tracking, the laptop shows the phone's picture live with a **red box that follows the ball** and an orange
+trail behind it, like a phone camera following a face. The box appears a few frames after the ball comes into view
+and stays on it through the bounce. If the box never appears on a thrown ball, the ball is not being seen: switch on
+**Show what the engine sees** (green: area watched for the ball; yellow: everything that could be the ball in the
+last second) and check the light and the calibration. Under the picture, "Balls found" and "other movement ignored
+(last: ...)" say what the engine made of each movement.
+
+After calibrating, the laptop tells the phone to fix its brightness and focus on the batter's stumps (otherwise the
+picture changes every time the bowler runs past the camera, which hides the ball). The phone shows "Brightness and
+focus locked on the stumps". If the light changes a lot, calibrate again.
+
+**Quality** on the phone sets the picture size and JPEG quality: 1280×720 is the most accurate, and 960×540 or 640×480 helps on weak Wi-Fi. A higher JPEG quality (80) gives the laptop a cleaner picture if the Wi-Fi keeps up (watch "Frames" on the laptop). After changing the size, calibrate again.
 
 ## 5b. Phone-only (newer phones)
 

@@ -9,6 +9,7 @@ import '../engine/workers.dart';
 import '../model/delivery.dart';
 import '../model/session.dart';
 import '../net/protocol.dart';
+import '../widgets/engine_overlay.dart';
 import '../widgets/result_card.dart';
 import 'calibration_screen.dart';
 import 'delivery_screen.dart';
@@ -36,6 +37,9 @@ class _LiveScreenState extends State<LiveScreen> {
   final _deliveries = <Delivery>[];
   bool _engineOn = false;
   Completer<PreviewEvent>? _snapshot;
+  Map<String, dynamic>? _ball; // the ball followed in the shown picture
+  Map<String, dynamic>? _debug;
+  bool _debugView = false;
 
   Session get s => widget.session;
 
@@ -77,6 +81,10 @@ class _LiveScreenState extends State<LiveScreen> {
           _preview = e.jpeg;
           _w = e.width;
           _h = e.height;
+          if (!e.snapshot) {
+            _ball = e.ball;
+            _debug = _debugView ? e.debug : null;
+          }
         });
         if (sizeChanged || !_engineOn) _maybeStartEngine();
       case StatsEvent():
@@ -97,6 +105,14 @@ class _LiveScreenState extends State<LiveScreen> {
     } else {
       _engineOn = false;
     }
+  }
+
+  void _toggleDebug(bool on) {
+    _server?.showDebug(on);
+    setState(() {
+      _debugView = on;
+      if (!on) _debug = null;
+    });
   }
 
   Future<void> _calibrate() async {
@@ -144,8 +160,24 @@ class _LiveScreenState extends State<LiveScreen> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: AspectRatio(
                 aspectRatio: _w > 0 ? _w / _h : 16 / 9,
-                child: Image.memory(_preview!, fit: BoxFit.contain, gaplessPlayback: true),
+                child: Stack(fit: StackFit.expand, children: [
+                  Image.memory(_preview!, fit: BoxFit.fill, gaplessPlayback: true),
+                  if (_w > 0)
+                    CustomPaint(
+                        painter: EngineOverlayPainter(
+                            width: _w.toDouble(), height: _h.toDouble(), ball: _ball, debug: _debug)),
+                ]),
               ),
+            ),
+          if (ready)
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Show what the engine sees'),
+              subtitle: const Text('Red box: the ball being followed. Green: area watched for the ball. '
+                  'Yellow: possible balls in the last second (a thrown ball leaves a line of them).'),
+              value: _debugView,
+              onChanged: _toggleDebug,
             ),
           if (_connected)
             Wrap(spacing: 8, children: [
@@ -166,7 +198,9 @@ class _LiveScreenState extends State<LiveScreen> {
               child: Text(
                 'Frames ${_stats['frames']}  |  engine ${(_stats['engine_ms'] as num? ?? 0).toStringAsFixed(1)} ms/frame'
                 '${_stats['stream_latency_ms'] != null ? '  |  phone to laptop ${(_stats['stream_latency_ms'] as num).toStringAsFixed(0)} ms' : ''}'
-                '${(_stats['size_mismatch'] as num? ?? 0) > 0 ? '\nCamera size changed: calibrate again.' : ''}',
+                '${(_stats['size_mismatch'] as num? ?? 0) > 0 ? '\nCamera size changed: calibrate again.' : ''}'
+                '${_stats.containsKey('deliveries') ? '\nBalls found ${_stats['deliveries']}  |  other movement ignored ${_stats['rejected'] ?? 0}' : ''}'
+                '${(_stats['last_reject'] as String? ?? '').isNotEmpty ? ' (last: ${_stats['last_reject']})' : ''}',
                 style: t.bodySmall,
               ),
             ),

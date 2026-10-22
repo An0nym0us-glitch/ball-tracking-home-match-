@@ -54,6 +54,7 @@ class PocketEyeNative {
         _pollResult = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_poll_result'),
         _stats = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_stats_json'),
         _debug = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_debug_json'),
+        _liveBall = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_live_ball_json'),
         _pushLuma = lib.lookupFunction<_PushPlaneC, _PushPlaneD>('pe_push_luma'),
         _pushJpeg = lib.lookupFunction<_PushJpegC, _PushJpegD>('pe_push_jpeg'),
         _pushYuv = lib.lookupFunction<_PushYuvC, _PushYuvD>('pe_push_yuv420'),
@@ -88,6 +89,7 @@ class PocketEyeNative {
   final _EngineTextD _pollResult;
   final _EngineTextD _stats;
   final _EngineTextD _debug;
+  final _EngineTextD _liveBall;
   final _PushPlaneD _pushLuma;
   final _PushJpegD _pushJpeg;
   final _PushYuvD _pushYuv;
@@ -287,6 +289,11 @@ class NativeEngine {
   /// ball candidates of the last second.
   Map<String, dynamic> debug() =>
       jsonDecode(PocketEyeNative._text((b, n) => _n._debug(_h, b, n), initial: 8192)) as Map<String, dynamic>;
+
+  /// The ball being followed right now (see pe_live_ball_json): {'visible':
+  /// false} or its position 'uv', radius 'r', velocity 'v' and 'trail'.
+  Map<String, dynamic> liveBall() =>
+      jsonDecode(PocketEyeNative._text((b, n) => _n._liveBall(_h, b, n), initial: 2048)) as Map<String, dynamic>;
 
   void dispose() {
     if (_h != nullptr) _n._destroy(_h);

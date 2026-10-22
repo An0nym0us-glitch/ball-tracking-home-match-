@@ -16,7 +16,8 @@ double msSince(Clock::time_point t0) {
 Engine::Engine(const EngineConfig& cfg)
     : cfg_(cfg),
       detector_(cfg.analysis.camera, cfg.analysis.pitch, cfg.analysis.ball.radius, cfg.detector),
-      tracker_(cfg.analysis.camera.width, cfg.tracker) {
+      tracker_(cfg.analysis.camera.width, cfg.tracker),
+      follower_(cfg.analysis.camera.width) {
   if (cfg_.async_analysis) thread_ = std::thread(&Engine::worker, this);
 }
 
@@ -51,6 +52,7 @@ void Engine::pushFrame(const YuvFrame& frame, double t) {
     while (detect_ms_per_frame_.size() > 600) detect_ms_per_frame_.pop_front();
     const auto t1 = Clock::now();
     tracker_.update(mid_frame, t_mid, last_candidates_);
+    follower_.update(t_mid, last_candidates_);
     stats_.track_ms += msSince(t1);
     queueFinished();
   }

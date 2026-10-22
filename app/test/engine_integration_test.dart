@@ -92,8 +92,10 @@ void main() {
   test('laptop live mode: phone stream in, delivery and result card out', () async {
     final server = await LiveServer.start(token: '424242', port: 47911);
     final deliveries = Completer<DeliveryEvent>();
+    var ballShown = 0;
     server.events.listen((e) {
       if (e is DeliveryEvent && e.json['valid'] == true && !deliveries.isCompleted) deliveries.complete(e);
+      if (e is PreviewEvent && e.ball?['visible'] == true) ballShown++;
     });
     server.configure(config());
 
@@ -111,7 +113,9 @@ void main() {
       if (f == null) break;
       last = f.$1;
       sock.add(encodeFrame((ts[i] * 1e6).round(), f.$1));
-      if (i % 10 == 0) await sock.flush();
+      // Real time, so that the pictures shown (~15 a second) include the ball in flight.
+      await sock.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 33));
     }
     // Keep the stream going for a second (a real phone never stops).
     for (var k = 1; k <= 30; ++k) {
@@ -125,6 +129,10 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 500));
     expect(fromLaptop.first, contains('hello_ok'));
     expect(fromLaptop.any((l) => l.contains('"type":"result"')), isTrue);
+    // Tracking was on: the phone was told to lock brightness and focus.
+    expect(fromLaptop.any((l) => l.contains('"type":"lock"')), isTrue);
+    // The live picture showed the followed ball.
+    expect(ballShown, greaterThan(0));
     await sock.close();
     await server.stop();
   }, skip: skip, timeout: const Timeout(Duration(minutes: 3)));

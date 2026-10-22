@@ -11,6 +11,7 @@
 
 #include "pocketeye/analysis.hpp"
 #include "pocketeye/detector.hpp"
+#include "pocketeye/live.hpp"
 #include "pocketeye/tracker.hpp"
 
 namespace pe {
@@ -69,6 +70,8 @@ class Engine {
   int lastCandidateFrame() const { return frame_index_ - 1; }
   // Outline of the watched corridor in the picture (for a debugging view).
   std::vector<Vec2> corridorOutline() const;
+  // The ball being followed right now, for drawing on the live picture.
+  LiveBall liveBall() const { return follower_.state(t_now_); }
 
  private:
   struct Job {
@@ -86,6 +89,7 @@ class Engine {
   EngineConfig cfg_;
   Detector detector_;
   Tracker tracker_;
+  LiveFollower follower_;
   int frame_index_ = 0;  // index of the next frame pushed
   std::vector<Candidate> last_candidates_;
   YuvFrame converted_;

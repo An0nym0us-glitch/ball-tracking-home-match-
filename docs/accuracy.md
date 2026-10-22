@@ -14,6 +14,8 @@ cmake -S engine -B engine/build -G Ninja && cmake --build engine/build
 python3 tools/eval/run_eval.py --generate 60 --seed 23 --work out/ev_720
 python3 tools/eval/run_eval.py --generate 30 --seed 31 --preset 1080p60 --work out/ev_1080
 python3 tools/eval/run_eval.py --generate 20 --seed 41 --scenario plumb --work out/ev_plumb
+python3 tools/eval/run_eval.py --work out/ev_720 --jpeg-quality 70      # old phone streaming to the laptop
+python3 tools/eval/run_eval.py --work out/ev_plumb --scenario plumb --jpeg-quality 70
 python3 tools/eval/eval_autocal.py --scenes out/ev_720     # automatic stump calibration
 python3 tools/eval/eval_autocal.py --scenes out/ev_1080
 ```
@@ -120,6 +122,44 @@ Missed scenes: scene_0007 (missed)
 
 Wrong LBW calls: scene_0014 engine NOT OUT vs truth OUT {'pitching': ('in line', 'in line'), 'impact': ("umpire's call", 'in line'), 'wickets': ('missing', 'hitting')}
 
+The old-phone camera app sends every frame as its own JPEG (quality 70 by default), so every frame carries fresh
+compression noise, strongest in the colour channels. `--jpeg-quality 70` re-encodes each frame of the same scenes
+that way before analysis. The laptop runs the detector with a setting for such streams (`"source": "jpeg_stream"`:
+brightness smoothed a little, colour at normal weight). It does not help video straight from a camera, so the
+phone-only mode and recorded videos keep the default.
+
+### Old phone streaming to the laptop: `720p30`, every frame a JPEG of quality 70
+
+- Deliveries found: **55/60** (92 %), false deliveries: 0
+- Would it hit the stumps (10 deliveries without a pad hit): correct 7, umpire's call 3, **wrong 0**; LBW verdicts given anyway: 3
+- LBW decisions (44 pad impacts): correct 28, umpire's call 8, impact not recognised 6, **wrong 2**; true OUTs given OUT: 1/6
+- Analysis time per delivery: median 531 ms, 90th percentile 987 ms; detection 10.5 ms/frame
+
+| Metric | Median error | 90 % of errors below | 90 % interval contains truth |
+|---|---|---|---|
+| Release speed | 2.73 % | 12.81 % | 84 % (n=55) |
+| Average speed | 4.65 % | 40.85 % | 76 % (n=55) |
+| Swing | 2.35 cm | 21.69 cm | 89 % (n=55) |
+| Turn | 0.43 deg | 1.01 deg | 95 % (n=44) |
+| Length (bounce point) | 0.12 m | 0.46 m | 68 % (n=44) |
+| Line at bounce | 0.80 cm | 2.60 cm | 91 % (n=44) |
+| Height at stumps | 4.96 cm | 28.90 cm | 89 % (n=53) |
+| Line at stumps | 2.52 cm | 31.60 cm | 89 % (n=53) |
+| Line at pad impact | 8.61 cm | 26.64 cm | 41 % (n=39) |
+
+Missed scenes: scene_0003 (missed), scene_0016 (missed), scene_0052 (missed), scene_0055 (missed), scene_0059 (missed)
+
+Wrong LBW calls: scene_0008 engine NOT OUT vs truth OUT {'pitching': ('full toss', 'full toss'), 'impact': ('outside leg', 'in line'), 'wickets': ("umpire's call", 'hitting')}; scene_0020 engine NOT OUT vs truth OUT {'pitching': ('outside leg', 'outside off'), 'impact': ('outside leg', 'in line'), 'wickets': ('missing', 'hitting')}
+
+| Same scenes, JPEG per frame | Before (default detector) | With the JPEG-stream setting |
+|---|---|---|
+| 720p30, 60 scenes: deliveries found | 50/60 | 55/60 |
+| Release speed, 90 % of errors below | 39 % | 13 % |
+| Line at stumps, median / 90 % | 8.9 / 57 cm | 2.5 / 32 cm |
+| Wrong LBW calls | 1 of 39 | 2 of 44 (new: scene_0020, the ball after the bounce taken for a slow delivery) |
+| Plumb, 20 scenes: found / OUT given | 18/20, 3 of 12 | 19/20, 4 of 13 |
+| CI scenes (24): found / false deliveries | 20/24, 2 | 24/24, 0 |
+
 ### Compared with the previous engine (same scenes)
 
 | | 720p30 (60 scenes) old → new | 1080p60 (30 scenes) old → new | Plumb (20 scenes) old → new |
@@ -168,7 +208,7 @@ rendered ones: the app always shows what it found for the user to confirm.
 | Line at bounce / stumps | ±0.6 cm / ±3 cm typical | ±0.6 cm / ±3 cm typical | Line is the camera's strong axis |
 | Height at stumps | ±6 cm typical, ±31 cm worst 10 % | ±3.5 cm typical | Depends on seeing the bounce |
 | LBW decision | Wrong in 2 of 41 pad hits (5 %), all NOT OUT for a true OUT; **too cautious** | Wrong in 0 of 24 | See below |
-| Deliveries found | ~85–90 % | ~95 % | Misses: ball hidden by the bowler too long, bounce or pad not seen |
+| Deliveries found | ~85–90 % (laptop mode, JPEG stream: ~90 %) | ~95 % | Misses: ball hidden by the bowler too long, bounce or pad not seen |
 | Calibration | Automatic in ~95 % of scenes, as accurate as hand taps | same | Synthetic stumps only |
 
 LBW at 720p / 30 fps is **too cautious**. Clear (plumb) LBWs were given OUT in only 2 of 12 found: most pad hits
