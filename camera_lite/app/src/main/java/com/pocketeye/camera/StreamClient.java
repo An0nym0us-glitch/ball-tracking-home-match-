@@ -46,6 +46,7 @@ public final class StreamClient {
     private Socket socket;
     private DataOutputStream out;
     private volatile boolean running;
+    private volatile boolean rotate180;
 
     private final ArrayDeque<byte[]> freeBuffers = new ArrayDeque<>();
     private final ArrayDeque<Job> jobs = new ArrayDeque<>();
@@ -187,6 +188,7 @@ public final class StreamClient {
             byte[] jpeg = null;
             try {
                 bos.reset();
+                if (rotate180) rotate180(job.nv21, width, height);
                 YuvImage img = new YuvImage(job.nv21, android.graphics.ImageFormat.NV21, width, height, null);
                 if (img.compressToJpeg(rect, quality, bos)) jpeg = bos.toByteArray();
             } catch (Exception e) {
@@ -281,6 +283,31 @@ public final class StreamClient {
         running = false;
         close();
         listener.onClosed(reason);
+    }
+
+    /** Turn every frame upside down before sending (sensor mounted at 270 degrees). */
+    public void setRotate180(boolean on) {
+        rotate180 = on;
+    }
+
+    /** Rotates an NV21 frame by 180 degrees in place. */
+    static void rotate180(byte[] nv21, int width, int height) {
+        int n = width * height;
+        for (int i = 0, j = n - 1; i < j; i++, j--) {
+            byte t = nv21[i];
+            nv21[i] = nv21[j];
+            nv21[j] = t;
+        }
+        // Interleaved V/U pairs: reverse the order of the pairs, keep each pair.
+        int pairs = n / 4;
+        for (int i = 0, j = pairs - 1; i < j; i++, j--) {
+            int a = n + 2 * i, b = n + 2 * j;
+            byte v = nv21[a], u = nv21[a + 1];
+            nv21[a] = nv21[b];
+            nv21[a + 1] = nv21[b + 1];
+            nv21[b] = v;
+            nv21[b + 1] = u;
+        }
     }
 
     public boolean isRunning() {

@@ -24,7 +24,7 @@ struct DetectorConfig {
   int max_blobs = 300;           // more blobs than this = global change (exposure jump, shake)
   double corridor_margin_m = 0.9;  // around the stumps line, each side
   double corridor_height_m = 2.8;
-  double max_elongation = 10.0;
+  double max_elongation = 16.0;  // motion blur: a fast ball is a streak at 1/60-1/125 s
   int min_area = 4;               // px
   int big_region_margin_px = 12;  // ignore small blobs this close to large moving regions
   double big_region_frac = 0.015;  // "large" = more than this fraction of the image

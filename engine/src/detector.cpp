@@ -146,17 +146,27 @@ void Detector::detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame&
   for (int v = 0; v < 256; ++v) gain[v] = cv::saturate_cast<uchar>(v * cfg_.chroma_gain);
   const int rows = diff_.rows, cols = diff_.cols;
   cv::parallel_for_(cv::Range(0, (rows + 1) / 2), [&](const cv::Range& r) {
-    std::vector<uchar> crow((cols + 1) / 2);
+    const int hc_n = (cols + 1) / 2;
+    std::vector<uchar> ca(hc_n + 1, 0), cb(hc_n + 1, 0), cmid(hc_n + 1, 0), up(2 * hc_n + 2, 0);
+    // Colour difference of one half-resolution row (scaled by the gain).
+    auto colourRow = [&](int hy, std::vector<uchar>& out) {
+      std::fill(out.begin(), out.end(), 0);
+      if (!colour || hy >= cur.uv.rows) return;
+      const uchar *c = cur.uv.ptr<uchar>(hy), *p = prev.uv.ptr<uchar>(hy), *n = next.uv.ptr<uchar>(hy);
+      const int hc = std::min(cur.uv.cols, hc_n);
+      for (int x = 0; x < hc; ++x) {
+        const int k = 2 * x;
+        const int du = std::min(std::abs(c[k] - p[k]), std::abs(c[k] - n[k]));
+        const int dv = std::min(std::abs(c[k + 1] - p[k + 1]), std::abs(c[k + 1] - n[k + 1]));
+        out[x] = gain[std::max(du, dv)];
+      }
+      out[hc] = hc > 0 ? out[hc - 1] : 0;
+    };
+    if (colour) colourRow(r.start, ca);
     for (int hy = r.start; hy < r.end; ++hy) {
-      if (colour && hy < cur.uv.rows) {
-        const uchar *c = cur.uv.ptr<uchar>(hy), *p = prev.uv.ptr<uchar>(hy), *n = next.uv.ptr<uchar>(hy);
-        const int hc = std::min(cur.uv.cols, static_cast<int>(crow.size()));
-        for (int x = 0; x < hc; ++x) {
-          const int k = 2 * x;
-          const int du = std::min(std::abs(c[k] - p[k]), std::abs(c[k] - n[k]));
-          const int dv = std::min(std::abs(c[k + 1] - p[k + 1]), std::abs(c[k + 1] - n[k + 1]));
-          crow[x] = gain[std::max(du, dv)];
-        }
+      if (colour) {
+        colourRow(hy + 1, cb);
+        for (int x = 0; x <= hc_n; ++x) cmid[x] = static_cast<uchar>((ca[x] + cb[x] + 1) >> 1);
       }
       for (int y = 2 * hy; y < std::min(rows, 2 * hy + 2); ++y) {
         const uchar *c = cur.y.ptr<uchar>(y), *p = prev.y.ptr<uchar>(y), *n = next.y.ptr<uchar>(y);
@@ -168,10 +178,19 @@ void Detector::detect(const YuvFrame& prev, const YuvFrame& cur, const YuvFrame&
           d[x] = std::min(a, b);
         }
         if (colour) {
-          for (int x = 0; x < cols; ++x) d[x] = std::max(d[x], crow[x >> 1]);
+          // Colour at half resolution, interpolated: even rows/columns sit on a
+          // sample, odd ones half-way between two.
+          const uchar* cr = ((y & 1) ? cmid : ca).data();
+          uchar* u = up.data();
+          for (int hx = 0; hx < hc_n; ++hx) {
+            u[2 * hx] = cr[hx];
+            u[2 * hx + 1] = static_cast<uchar>((cr[hx] + cr[hx + 1] + 1) >> 1);
+          }
+          for (int x = 0; x < cols; ++x) d[x] = std::max(d[x], u[x]);
         }
         for (int x = 0; x < cols; ++x) d[x] &= m[x];  // corridor mask (0 / 255)
       }
+      if (colour) ca.swap(cb);
     }
   });
 

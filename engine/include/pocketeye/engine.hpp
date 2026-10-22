@@ -67,6 +67,8 @@ class Engine {
   const EngineConfig& config() const { return cfg_; }
   const std::vector<Candidate>& lastCandidates() const { return last_candidates_; }
   int lastCandidateFrame() const { return frame_index_ - 1; }
+  // Outline of the watched corridor in the picture (for a debugging view).
+  std::vector<Vec2> corridorOutline() const;
 
  private:
   struct Job {

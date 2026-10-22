@@ -103,6 +103,14 @@ Camera size: **1080p** (default, sharper) or **720p**. The app asks the camera f
 60 fps at 1080p it falls back to 720p 60 fps, then 30 fps. The screen shows what the camera really delivers
 (for example "1920x1080 at 60 fps"). Changing the size needs a new calibration.
 
+Hold the phone in **landscape** (the app keeps the screen in landscape in this mode).
+
+**Balls not found?** Switch on **Show what the engine sees**. It shows the last picture with the area watched
+for the ball (green) and every spot that could be the ball in the last second (yellow circles). A thrown ball
+should leave a line of yellow circles along the pitch. If it does not, press **Record test clip**, bowl a ball
+within 8 seconds and send the clip (the share menu opens: WhatsApp, Drive, e-mail, ...). The clip is exactly
+what the engine received, so the problem can be found and fixed.
+
 After calibrating, the app fixes the camera's brightness and focus on the batter's stumps (otherwise the picture
 changes every time the bowler runs past, which hides the ball). If the light changes a lot, calibrate again.
 

@@ -1,8 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
 
+import 'package:archive/archive_io.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../engine/native.dart';
 import '../engine/workers.dart';
@@ -38,6 +44,10 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
   final _deliveries = <Delivery>[];
   bool _engineOn = false;
   Map<String, dynamic> _engineStats = const {};
+  int _rotation = 0; // turns the sensor picture upright (clockwise degrees)
+  bool _debugView = false;
+  DebugEvent? _debug;
+  bool _recording = false;
 
   Session get s => widget.session;
 
@@ -45,6 +55,9 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // One fixed landscape orientation: the picture the engine gets (and the
+    // calibration) must not turn when the phone is moved.
+    SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft]);
     _init();
   }
 
@@ -89,6 +102,9 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
       await cam.dispose();
       return;
     }
+    // Back camera in landscape (Android ROTATION_90): the sensor picture needs
+    // (sensor orientation - 90) degrees clockwise to be upright; 0 on most phones.
+    _rotation = ((cam.description.sensorOrientation - 90) % 360 + 360) % 360;
     setState(() {
       _cam = cam;
       _status = 'Camera ready';
@@ -129,22 +145,27 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
     }
     if (img.planes.length < 3) return;
     final y = img.planes[0], u = img.planes[1], v = img.planes[2];
-    if (_w != img.width || _h != img.height) {
-      _w = img.width;
-      _h = img.height;
+    // Size of the upright picture.
+    final turn = _rotation == 90 || _rotation == 270;
+    final w = turn ? img.height : img.width, h = turn ? img.width : img.height;
+    if (_w != w || _h != h) {
+      _w = w;
+      _h = h;
       _readLensFov();
       _maybeStartEngine();
     }
     if (_wantSnapshot) {
       _wantSnapshot = false;
       final jpeg = PocketEyeNative.instance.yuv420ToJpeg(y.bytes, u.bytes, v.bytes, img.width, img.height,
-          y.bytesPerRow, u.bytesPerRow, u.bytesPerPixel ?? 1);
-      if (jpeg != null) _openCalibration(jpeg, img.width, img.height);
+          y.bytesPerRow, u.bytesPerRow, u.bytesPerPixel ?? 1,
+          rotation: _rotation);
+      if (jpeg != null) _openCalibration(jpeg, w, h);
       return;
     }
     if (!_engineOn) return;
     final sent = _worker!.offer(y.bytes, u.bytes, v.bytes, img.width, img.height, y.bytesPerRow, u.bytesPerRow,
-        u.bytesPerPixel ?? 1, t);
+        u.bytesPerPixel ?? 1, t,
+        rotation: _rotation);
     if (!sent) _dropped++;
   }
 
@@ -164,8 +185,62 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
         setState(() => _deliveries.insert(0, d));
       case ErrorEvent():
         setState(() => _status = e.message);
+      case DebugEvent():
+        if (_debugView) setState(() => _debug = e);
+      case RecordedEvent():
+        _shareClip(e.dir, e.frames);
       case PreviewEvent():
         break;
+    }
+  }
+
+  void _toggleDebug(bool on) {
+    _worker?.showDebug(on);
+    setState(() {
+      _debugView = on;
+      if (!on) _debug = null;
+    });
+  }
+
+  /// Records a few seconds of exactly what the engine gets, to send to the
+  /// developers when balls are not found.
+  Future<void> _recordClip() async {
+    final base = await getApplicationDocumentsDirectory();
+    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
+    final dir = Directory('${base.path}/clips/clip_$stamp');
+    await dir.create(recursive: true);
+    final cfg = jsonDecode(s.toConfigJson()) as Map<String, dynamic>;
+    cfg['recorded'] = {
+      'camera_fps': double.parse(_cameraFps.toStringAsFixed(1)),
+      'frames_skipped_pct': _received == 0 ? 0 : (100 * _dropped / _received).round(),
+      'engine_stats': _engineStats,
+    };
+    await File('${dir.path}/config.json').writeAsString(const JsonEncoder.withIndent('  ').convert(cfg));
+    _worker?.record(dir.path, 8.0);
+    setState(() {
+      _recording = true;
+      _status = 'Recording 8 s: bowl now...';
+    });
+  }
+
+  Future<void> _shareClip(String dir, int frames) async {
+    setState(() => _status = 'Packing the clip ($frames frames)...');
+    try {
+      final zip = await _zipFolder(dir);
+      if (!mounted) return;
+      setState(() {
+        _recording = false;
+        _status = 'Clip saved. Send it with the share menu.';
+      });
+      await SharePlus.instance.share(ShareParams(
+          files: [XFile(zip)], text: 'PocketEye test clip ($frames frames, ${_w}x$_h)'));
+    } catch (err) {
+      if (mounted) {
+        setState(() {
+          _recording = false;
+          _status = 'Could not save the clip: $err';
+        });
+      }
     }
   }
 
@@ -237,6 +312,7 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    SystemChrome.setPreferredOrientations([]);
     WidgetsBinding.instance.removeObserver(this);
     _sub?.cancel();
     _worker?.stop();
@@ -281,6 +357,24 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
               '${(_engineStats['last_reject'] as String? ?? '').isNotEmpty ? ' (last: ${_engineStats['last_reject']})' : ''}'
               '${((_engineStats['analyses_waiting'] as num?) ?? 0) > 0 ? '  |  analysing...' : ''}',
               style: t.bodySmall),
+        Row(children: [
+          Expanded(
+            child: SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Show what the engine sees'),
+              value: _debugView,
+              onChanged: _engineOn ? _toggleDebug : null,
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: _engineOn && !_recording ? _recordClip : null,
+            icon: const Icon(Icons.fiber_manual_record, color: Colors.red),
+            label: const Text('Record test clip'),
+          ),
+        ]),
+        if (_debugView && _debug != null) _DebugView(_debug!),
         if (dropPct > 20)
           Text('This phone is too slow for every frame. Use the laptop mode for best accuracy.',
               style: t.bodySmall!.copyWith(color: Colors.orange.shade900)),
@@ -301,4 +395,83 @@ class _PhoneScreenState extends State<PhoneScreen> with WidgetsBindingObserver {
       ]),
     );
   }
+}
+
+/// Packs a recorded clip folder into one zip (next to it). Top-level: runs in
+/// a worker isolate.
+Future<String> _zipFolder(String dir) => Isolate.run(() {
+      final zipPath = '$dir.zip';
+      final enc = ZipFileEncoder();
+      enc.create(zipPath, level: 0); // JPEGs do not compress further
+      for (final f in Directory(dir).listSync().whereType<File>().toList()..sort((a, b) => a.path.compareTo(b.path))) {
+        enc.addFileSync(f, f.uri.pathSegments.last);
+      }
+      enc.closeSync();
+      return zipPath;
+    });
+
+/// The last processed picture with the watched corridor (green) and the ball
+/// candidates of the last second (yellow; the newest brightest).
+class _DebugView extends StatelessWidget {
+  const _DebugView(this.e);
+  final DebugEvent e;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = (e.info['width'] as num?)?.toDouble() ?? 1, h = (e.info['height'] as num?)?.toDouble() ?? 1;
+    final n = (e.info['candidates'] as List? ?? const []).length;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      AspectRatio(
+        aspectRatio: w / h,
+        child: Stack(fit: StackFit.expand, children: [
+          Image.memory(e.jpeg, fit: BoxFit.fill, gaplessPlayback: true),
+          CustomPaint(painter: _DebugPainter(e.info, w, h)),
+        ]),
+      ),
+      Text('Green: area watched for the ball. Yellow: possible balls in the last second ($n). '
+          'A thrown ball should leave a line of yellow dots.'),
+    ]);
+  }
+}
+
+class _DebugPainter extends CustomPainter {
+  _DebugPainter(this.info, this.w, this.h);
+  final Map<String, dynamic> info;
+  final double w, h;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sx = size.width / w, sy = size.height / h;
+    final corridor = info['corridor'] as List? ?? const [];
+    if (corridor.length > 2) {
+      final path = Path();
+      for (var i = 0; i < corridor.length; ++i) {
+        final p = corridor[i] as List;
+        final o = Offset((p[0] as num) * sx, (p[1] as num) * sy);
+        i == 0 ? path.moveTo(o.dx, o.dy) : path.lineTo(o.dx, o.dy);
+      }
+      path.close();
+      canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.greenAccent
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5);
+    }
+    final now = (info['t'] as num?)?.toDouble() ?? 0;
+    for (final c in info['candidates'] as List? ?? const []) {
+      final v = c as List;
+      final age = (now - (v[0] as num)).clamp(0.0, 1.0);
+      canvas.drawCircle(
+          Offset((v[1] as num) * sx, (v[2] as num) * sy),
+          ((v[3] as num) * sx).clamp(2.0, 12.0) + 2,
+          Paint()
+            ..color = Colors.yellowAccent.withValues(alpha: 1.0 - 0.8 * age)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DebugPainter old) => old.info != info;
 }

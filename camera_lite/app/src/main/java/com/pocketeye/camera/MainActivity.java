@@ -43,6 +43,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
     private Camera camera;
     private int camW, camH, camFps;
     private float hfov = 60f;
+    // Frames come in sensor orientation. In the (fixed) landscape screen they
+    // are upright when the sensor is mounted at 90 degrees (almost all phones);
+    // a sensor at 270 gives upside-down frames, turned before sending.
+    private boolean rotate180;
     private boolean surfaceReady;
     private volatile StreamClient client;
     private volatile boolean scanning;
@@ -190,6 +194,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
             camera.setParameters(p);
             hfov = p.getHorizontalViewAngle();
             camera.setDisplayOrientation(displayOrientation(info));
+            rotate180 = (info.orientation - 90 + 360) % 360 == 180;
             camera.setPreviewDisplay(preview.getHolder());
             int size = camW * camH * 3 / 2;
             for (int i = 0; i < 4; i++) camera.addCallbackBuffer(new byte[size]);
@@ -389,6 +394,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ca
         setStatus("Connecting to the laptop...");
         final StreamClient c = new StreamClient(token, camW, camH, camFps, hfov,
                 prefs.getInt("quality", 70), Build.MANUFACTURER + " " + Build.MODEL, this);
+        c.setRotate180(rotate180);
         new Thread(new Runnable() {
             @Override
             public void run() {

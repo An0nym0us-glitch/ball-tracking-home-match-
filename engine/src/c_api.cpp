@@ -30,6 +30,13 @@ struct pe_engine {
   cv::Mat last;  // last pushed BGR/grey frame (copy)
   pe::YuvFrame last_yuv;  // last pushed camera frame (copy), when newer than `last`
   bool last_is_yuv = false;
+  pe::YuvFrame rotated;   // camera frame turned upright
+  struct SeenCandidate {
+    double t;
+    pe::Candidate c;
+  };
+  std::deque<SeenCandidate> seen;  // ball candidates of the last second (debug view)
+  double t_last = 0.0;
   std::vector<uchar> jpeg;
 };
 
@@ -64,10 +71,18 @@ void drain(pe_engine* e) {
   }
 }
 
+// Keeps the detector's candidates of the last second for the debug view.
+void recordCandidates(pe_engine* e, double t) {
+  e->t_last = t;
+  for (const pe::Candidate& c : e->engine->lastCandidates()) e->seen.push_back({t, c});
+  while (!e->seen.empty() && e->seen.front().t < t - 1.0) e->seen.pop_front();
+}
+
 int32_t push(pe_engine* e, const cv::Mat& image, double t) {
   const pe::Camera& cam = e->config.engine.analysis.camera;
   if (image.cols != cam.width || image.rows != cam.height) return -2;
   e->engine->pushFrame(image, t);
+  recordCandidates(e, t);
   image.copyTo(e->last);
   e->last_is_yuv = false;
   drain(e);
@@ -88,6 +103,25 @@ void yuv420ToFrame(const uint8_t* y, const uint8_t* u, const uint8_t* v, int wid
       d[2 * c] = ur[static_cast<size_t>(c) * uv_pixel_stride];
       d[2 * c + 1] = vr[static_cast<size_t>(c) * uv_pixel_stride];
     }
+  }
+}
+
+// Turns a camera frame upright (rotation clockwise in degrees).
+void rotateFrame(const pe::YuvFrame& in, int rotation, pe::YuvFrame& out) {
+  const int code = rotation == 90    ? cv::ROTATE_90_CLOCKWISE
+                   : rotation == 180 ? cv::ROTATE_180
+                   : rotation == 270 ? cv::ROTATE_90_COUNTERCLOCKWISE
+                                     : -1;
+  if (code < 0) {
+    out.y = in.y;
+    out.uv = in.uv;
+    return;
+  }
+  cv::rotate(in.y, out.y, code);
+  if (in.uv.empty()) {
+    out.uv.release();
+  } else {
+    cv::rotate(in.uv, out.uv, code);
   }
 }
 
@@ -236,16 +270,20 @@ int32_t pe_push_jpeg(pe_engine* e, const uint8_t* data, int32_t len, double t_se
 
 int32_t pe_push_yuv420(pe_engine* e, const uint8_t* y, const uint8_t* u, const uint8_t* v, int32_t width,
                        int32_t height, int32_t y_stride, int32_t uv_stride, int32_t uv_pixel_stride,
-                       double t_seconds) {
+                       int32_t rotation, double t_seconds) {
   if (!e || !y || !u || !v) return -1;
   try {
     const pe::Camera& cam = e->config.engine.analysis.camera;
-    if (width != cam.width || height != cam.height) return -2;
-    pe::YuvFrame f;
-    yuv420ToFrame(y, u, v, width, height, y_stride, uv_stride, uv_pixel_stride, f);
+    const bool swap = rotation == 90 || rotation == 270;
+    if ((swap ? height : width) != cam.width || (swap ? width : height) != cam.height) return -2;
+    pe::YuvFrame raw;
+    yuv420ToFrame(y, u, v, width, height, y_stride, uv_stride, uv_pixel_stride, raw);
+    rotateFrame(raw, rotation, e->rotated);
+    const pe::YuvFrame& f = e->rotated;
     e->engine->pushFrame(f, t_seconds);
+    recordCandidates(e, t_seconds);
     f.y.copyTo(e->last_yuv.y);
-    e->last_yuv.uv = f.uv;
+    f.uv.copyTo(e->last_yuv.uv);
     e->last_is_yuv = true;
     drain(e);
     return 0;
@@ -269,12 +307,15 @@ int32_t pe_last_frame_jpeg(pe_engine* e, int32_t max_width, int32_t quality, uin
 }
 
 int32_t pe_yuv420_to_jpeg(const uint8_t* y, const uint8_t* u, const uint8_t* v, int32_t width, int32_t height,
-                          int32_t y_stride, int32_t uv_stride, int32_t uv_pixel_stride, int32_t quality,
-                          uint8_t* buf, int32_t buf_len) {
+                          int32_t y_stride, int32_t uv_stride, int32_t uv_pixel_stride, int32_t rotation,
+                          int32_t quality, uint8_t* buf, int32_t buf_len) {
   if (!y || !u || !v) return 0;
   try {
     cv::Mat bgr;
     yuv420ToBgr(y, u, v, width, height, y_stride, uv_stride, uv_pixel_stride, bgr);
+    if (rotation == 90) cv::rotate(bgr, bgr, cv::ROTATE_90_CLOCKWISE);
+    if (rotation == 180) cv::rotate(bgr, bgr, cv::ROTATE_180);
+    if (rotation == 270) cv::rotate(bgr, bgr, cv::ROTATE_90_COUNTERCLOCKWISE);
     std::vector<uchar> tmp;
     return encodeJpeg(bgr, 0, quality, tmp, buf, buf_len);
   } catch (...) {
@@ -332,6 +373,27 @@ int32_t pe_auto_calibrate(const char* config_json, const uint8_t* jpeg, int32_t 
     out = {{"ok", false}, {"message", std::string("Automatic calibration failed: ") + ex.what()}};
   }
   return copyOut(out.dump(), buf, buf_len);
+}
+
+int32_t pe_debug_json(pe_engine* e, char* buf, int32_t buf_len) {
+  if (!e) return 0;
+  try {
+    const pe::Camera& cam = e->config.engine.analysis.camera;
+    json corridor = json::array();
+    for (const pe::Vec2& p : e->engine->corridorOutline()) {
+      corridor.push_back({std::round(p.x()), std::round(p.y())});
+    }
+    json cands = json::array();
+    for (const auto& s : e->seen) {
+      cands.push_back({s.t, std::round(s.c.uv.x() * 10) / 10, std::round(s.c.uv.y() * 10) / 10,
+                       std::round(s.c.radius_px * 10) / 10, std::round(s.c.strength)});
+    }
+    const json j = {{"width", cam.width}, {"height", cam.height}, {"t", e->t_last}, {"corridor", corridor},
+                    {"candidates", cands}};
+    return copyOut(j.dump(), buf, buf_len);
+  } catch (...) {
+    return 0;
+  }
 }
 
 int32_t pe_benchmark(int32_t width, int32_t height, int32_t frames, char* buf, int32_t buf_len) {

@@ -21,15 +21,15 @@ typedef _PushPlaneD = int Function(Pointer<Void>, Pointer<Uint8>, int, int, int,
 typedef _PushJpegC = Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32, Double);
 typedef _PushJpegD = int Function(Pointer<Void>, Pointer<Uint8>, int, double);
 typedef _PushYuvC = Int32 Function(Pointer<Void>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Int32, Int32,
-    Int32, Int32, Int32, Double);
+    Int32, Int32, Int32, Int32, Double);
 typedef _PushYuvD = int Function(
-    Pointer<Void>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, int, int, int, int, int, double);
+    Pointer<Void>, Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, int, int, int, int, int, int, double);
 typedef _LastJpegC = Int32 Function(Pointer<Void>, Int32, Int32, Pointer<Uint8>, Int32);
 typedef _LastJpegD = int Function(Pointer<Void>, int, int, Pointer<Uint8>, int);
 typedef _YuvJpegC = Int32 Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Int32, Int32, Int32, Int32,
-    Int32, Int32, Pointer<Uint8>, Int32);
+    Int32, Int32, Int32, Pointer<Uint8>, Int32);
 typedef _YuvJpegD = int Function(
-    Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, int, int, int, int, int, int, Pointer<Uint8>, int);
+    Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, int, int, int, int, int, int, int, Pointer<Uint8>, int);
 typedef _AutoCalC = Int32 Function(Pointer<Utf8>, Pointer<Uint8>, Int32, Pointer<Utf8>, Int32);
 typedef _AutoCalD = int Function(Pointer<Utf8>, Pointer<Uint8>, int, Pointer<Utf8>, int);
 typedef _BenchC = Int32 Function(Int32, Int32, Int32, Pointer<Utf8>, Int32);
@@ -53,6 +53,7 @@ class PocketEyeNative {
         _finish = lib.lookupFunction<_EngineVoidC, _EngineVoidD>('pe_finish'),
         _pollResult = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_poll_result'),
         _stats = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_stats_json'),
+        _debug = lib.lookupFunction<_EngineTextC, _EngineTextD>('pe_debug_json'),
         _pushLuma = lib.lookupFunction<_PushPlaneC, _PushPlaneD>('pe_push_luma'),
         _pushJpeg = lib.lookupFunction<_PushJpegC, _PushJpegD>('pe_push_jpeg'),
         _pushYuv = lib.lookupFunction<_PushYuvC, _PushYuvD>('pe_push_yuv420'),
@@ -86,6 +87,7 @@ class PocketEyeNative {
   final _EngineVoidD _finish;
   final _EngineTextD _pollResult;
   final _EngineTextD _stats;
+  final _EngineTextD _debug;
   final _PushPlaneD _pushLuma;
   final _PushJpegD _pushJpeg;
   final _PushYuvD _pushYuv;
@@ -164,12 +166,12 @@ class PocketEyeNative {
 
   Uint8List? yuv420ToJpeg(Uint8List y, Uint8List u, Uint8List v, int width, int height, int yStride,
       int uvStride, int uvPixelStride,
-      {int quality = 90}) {
+      {int quality = 90, int rotation = 0}) {
     final py = _copy(y), pu = _copy(u), pv = _copy(v);
     final cap = width * height * 3 + 4096;
     final out = calloc<Uint8>(cap);
     try {
-      final n = _yuvJpeg(py, pu, pv, width, height, yStride, uvStride, uvPixelStride, quality, out, cap);
+      final n = _yuvJpeg(py, pu, pv, width, height, yStride, uvStride, uvPixelStride, rotation, quality, out, cap);
       return n > 0 ? Uint8List.fromList(out.asTypedList(n)) : null;
     } finally {
       for (final p in [py, pu, pv, out]) {
@@ -232,8 +234,10 @@ class NativeEngine {
     return _n._pushLuma(_h, p, width, height, stride, t);
   }
 
+  /// [rotation] (0/90/180/270, clockwise) turns the sensor picture upright.
   int pushYuv420(Uint8List y, Uint8List u, Uint8List v, int width, int height, int yStride, int uvStride,
-      int uvPixelStride, double t) {
+      int uvPixelStride, double t,
+      {int rotation = 0}) {
     final total = y.length + u.length + v.length + 32;
     final p = _staging(total);
     final py = p;
@@ -242,7 +246,7 @@ class NativeEngine {
     py.asTypedList(y.length).setAll(0, y);
     pu.asTypedList(u.length).setAll(0, u);
     pv.asTypedList(v.length).setAll(0, v);
-    return _n._pushYuv(_h, py, pu, pv, width, height, yStride, uvStride, uvPixelStride, t);
+    return _n._pushYuv(_h, py, pu, pv, width, height, yStride, uvStride, uvPixelStride, rotation, t);
   }
 
   /// Small JPEG of the last frame for the replay buffer.
@@ -251,7 +255,14 @@ class NativeEngine {
       _jpegSize = 1 << 20;
       _jpegBuf = calloc<Uint8>(_jpegSize);
     }
-    final n = _n._lastJpeg(_h, maxWidth, quality, _jpegBuf, _jpegSize);
+    var n = _n._lastJpeg(_h, maxWidth, quality, _jpegBuf, _jpegSize);
+    if (n < 0) {
+      // Too big for the buffer (full-size frames): grow it and encode again.
+      calloc.free(_jpegBuf);
+      _jpegSize = -n + 65536;
+      _jpegBuf = calloc<Uint8>(_jpegSize);
+      n = _n._lastJpeg(_h, maxWidth, quality, _jpegBuf, _jpegSize);
+    }
     if (n <= 0) return null;
     return Uint8List.fromList(_jpegBuf.asTypedList(n));
   }
@@ -271,6 +282,11 @@ class NativeEngine {
 
   Map<String, dynamic> stats() =>
       jsonDecode(PocketEyeNative._text((b, n) => _n._stats(_h, b, n), initial: 1024)) as Map<String, dynamic>;
+
+  /// What the detector sees (see pe_debug_json): corridor outline and the
+  /// ball candidates of the last second.
+  Map<String, dynamic> debug() =>
+      jsonDecode(PocketEyeNative._text((b, n) => _n._debug(_h, b, n), initial: 8192)) as Map<String, dynamic>;
 
   void dispose() {
     if (_h != nullptr) _n._destroy(_h);

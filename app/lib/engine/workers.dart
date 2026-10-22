@@ -66,6 +66,20 @@ class DeliveryEvent extends WorkerEvent {
   final List<ReplayFrame> frames;
 }
 
+/// What the detector sees (phone-only debug view): small picture + detector JSON.
+class DebugEvent extends WorkerEvent {
+  DebugEvent(this.jpeg, this.info);
+  final Uint8List jpeg;
+  final Map<String, dynamic> info; // see pe_debug_json; plus 'thumb_width'
+}
+
+/// A test clip has been written (frames + timestamps.txt in [dir]).
+class RecordedEvent extends WorkerEvent {
+  RecordedEvent(this.dir, this.frames);
+  final String dir;
+  final int frames;
+}
+
 class ErrorEvent extends WorkerEvent {
   ErrorEvent(this.message);
   final String message;
@@ -90,6 +104,11 @@ WorkerEvent _decode(Map msg) {
         frames.add(ReplayFrame((jpegs[i] as TransferableTypedData).materialize().asUint8List(), times[i] as double));
       }
       return DeliveryEvent(jsonDecode(msg['json'] as String) as Map<String, dynamic>, frames);
+    case 'debug':
+      return DebugEvent((msg['jpeg'] as TransferableTypedData).materialize().asUint8List(),
+          (jsonDecode(msg['json'] as String) as Map<String, dynamic>)..['thumb_width'] = msg['tw']);
+    case 'recorded':
+      return RecordedEvent(msg['dir'] as String, msg['frames'] as int);
     default:
       return ErrorEvent(msg['text'] as String? ?? 'unknown worker message');
   }
@@ -416,7 +435,8 @@ class PhoneEngineWorker extends _LiveWorker {
 
   /// Sends a camera frame if the worker has room; returns false if dropped.
   bool offer(Uint8List y, Uint8List u, Uint8List v, int width, int height, int yStride, int uvStride,
-      int uvPixelStride, double t) {
+      int uvPixelStride, double t,
+      {int rotation = 0}) {
     if (_send == null) return false;
     // Safety net: never stay blocked if an answer got lost.
     if (_inFlight > 0 && _sinceAnswer.elapsedMilliseconds > 3000) _inFlight = 0;
@@ -437,10 +457,17 @@ class PhoneEngineWorker extends _LiveWorker {
       'ys': yStride,
       'uvs': uvStride,
       'uvps': uvPixelStride,
+      'rot': rotation,
       't': t,
     });
     return true;
   }
+
+  /// Live view of what the detector sees (a few pictures per second).
+  void showDebug(bool on) => send({'cmd': 'debug', 'on': on});
+
+  /// Saves the next [seconds] of frames, exactly as the engine gets them, to [dir].
+  void record(String dir, double seconds) => send({'cmd': 'record', 'dir': dir, 'seconds': seconds});
 }
 
 void _phoneMain(List<Object> args) {
@@ -452,6 +479,12 @@ void _phoneMain(List<Object> args) {
   var frames = 0;
   var lastStats = -10.0;
   var engineMs = 0.0;
+  var debugOn = false;
+  var lastDebug = -10.0;
+  // Test clip being recorded: folder, end time, frame times.
+  String? recDir;
+  var recUntil = 0.0;
+  final recTimes = <double>[];
 
   void handleFrame(Map msg) {
     final e = engine;
@@ -462,7 +495,8 @@ void _phoneMain(List<Object> args) {
     final v = (msg['v'] as TransferableTypedData).materialize().asUint8List();
     final sw = Stopwatch()..start();
     final rc = e.pushYuv420(y, u, v, msg['w'] as int, msg['h'] as int, msg['ys'] as int, msg['uvs'] as int,
-        msg['uvps'] as int, t);
+        msg['uvps'] as int, t,
+        rotation: msg['rot'] as int? ?? 0);
     engineMs = sw.elapsedMicroseconds / 1000.0;
     if (rc == -2) {
       toUi.send({'type': 'error', 'text': 'Camera size changed: calibrate again.'});
@@ -470,6 +504,29 @@ void _phoneMain(List<Object> args) {
     }
     final jpeg = e.lastFrameJpeg(maxWidth: 400, quality: 60);
     if (jpeg != null) ring.addLast((t, jpeg));
+    if (debugOn && jpeg != null && t - lastDebug > 0.25) {
+      lastDebug = t;
+      toUi.send({
+        'type': 'debug',
+        'jpeg': TransferableTypedData.fromList([jpeg]),
+        'json': jsonEncode(e.debug()),
+        'tw': 400,
+      });
+    }
+    final dir = recDir;
+    if (dir != null) {
+      if (recTimes.isEmpty) recUntil += t; // the clip starts with this frame
+      final full = e.lastFrameJpeg(maxWidth: 0, quality: 88);
+      if (full != null) {
+        File('$dir/frame_${recTimes.length.toString().padLeft(5, '0')}.jpg').writeAsBytesSync(full);
+        recTimes.add(t);
+      }
+      if (t >= recUntil) {
+        File('$dir/timestamps.txt').writeAsStringSync('${recTimes.map((x) => (x - recTimes.first).toStringAsFixed(6)).join('\n')}\n');
+        toUi.send({'type': 'recorded', 'dir': dir, 'frames': recTimes.length});
+        recDir = null;
+      }
+    }
     while (ring.isNotEmpty && ring.first.$1 < t - 8.0) {
       ring.removeFirst();
     }
@@ -523,6 +580,12 @@ void _phoneMain(List<Object> args) {
             'stats': {'frames': frames, 'engine_ms': engineMs, ...extra},
           });
         }
+      case 'debug':
+        debugOn = msg['on'] == true;
+      case 'record':
+        recDir = msg['dir'] as String;
+        recUntil = (msg['seconds'] as num).toDouble();
+        recTimes.clear();
       case 'stop':
         engine?.dispose();
         Isolate.exit();

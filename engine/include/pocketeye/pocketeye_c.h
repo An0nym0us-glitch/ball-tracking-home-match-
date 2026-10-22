@@ -45,10 +45,12 @@ PE_API int32_t pe_push_bgr(pe_engine* e, const uint8_t* data, int32_t width, int
                            int32_t stride, double t_seconds);
 PE_API int32_t pe_push_jpeg(pe_engine* e, const uint8_t* data, int32_t len, double t_seconds);
 /* Android YUV_420_888 (Flutter CameraImage): three planes; u/v may be
- * interleaved (uv_pixel_stride 2). */
+ * interleaved (uv_pixel_stride 2). rotation (0, 90, 180, 270, clockwise) turns
+ * the sensor picture upright; width/height are before rotation, and the
+ * calibration must be for the rotated picture. */
 PE_API int32_t pe_push_yuv420(pe_engine* e, const uint8_t* y, const uint8_t* u, const uint8_t* v,
                               int32_t width, int32_t height, int32_t y_stride, int32_t uv_stride,
-                              int32_t uv_pixel_stride, double t_seconds);
+                              int32_t uv_pixel_stride, int32_t rotation, double t_seconds);
 
 /* The last pushed frame as JPEG (scaled down to max_width; 0 = full size), for
  * replay buffers. Returns the size, or -needed if buf_len is too small. */
@@ -57,7 +59,12 @@ PE_API int32_t pe_last_frame_jpeg(pe_engine* e, int32_t max_width, int32_t quali
 /* Encodes an Android YUV_420_888 frame as JPEG (calibration snapshots). */
 PE_API int32_t pe_yuv420_to_jpeg(const uint8_t* y, const uint8_t* u, const uint8_t* v, int32_t width,
                                  int32_t height, int32_t y_stride, int32_t uv_stride, int32_t uv_pixel_stride,
-                                 int32_t quality, uint8_t* buf, int32_t buf_len);
+                                 int32_t rotation, int32_t quality, uint8_t* buf, int32_t buf_len);
+
+/* What the detector sees, for a live debugging view: {"width", "height",
+ * "corridor": [[u, v], ...] (outline of the watched area), "candidates":
+ * [[t, u, v, radius, strength], ...] (ball candidates of the last second)}. */
+PE_API int32_t pe_debug_json(pe_engine* e, char* buf, int32_t buf_len);
 
 /* End of stream: closes open tracks. */
 PE_API void pe_finish(pe_engine* e);

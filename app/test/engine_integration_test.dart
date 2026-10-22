@@ -63,6 +63,23 @@ void main() {
     expect(check['ok'], isTrue, reason: check['error']?.toString());
   }, skip: skip);
 
+  test('camera frames: rotation and the debug view', () {
+    final cfg = jsonDecode(config()) as Map<String, dynamic>;
+    final w = (cfg['image']['width'] as num).toInt(), h = (cfg['image']['height'] as num).toInt();
+    final e = NativeEngine.create(config());
+    // A sensor picture lying on its side: h x w before turning it 90 degrees.
+    final y = Uint8List(w * h)..fillRange(0, w * h, 100);
+    final uv = Uint8List(w * h ~/ 4)..fillRange(0, w * h ~/ 4, 128);
+    expect(e.pushYuv420(y, uv, uv, h, w, h, h ~/ 2, 1, 0.0, rotation: 90), 0);
+    expect(e.pushYuv420(y, uv, uv, h, w, h, h ~/ 2, 1, 0.033, rotation: 0), -2); // wrong size for the calibration
+    expect(e.pushYuv420(y, uv, uv, w, h, w, w ~/ 2, 1, 0.066, rotation: 180), 0);
+    final dbg = e.debug();
+    expect(dbg['width'], w);
+    expect((dbg['corridor'] as List).length, greaterThan(2));
+    expect(dbg['candidates'], isA<List>());
+    e.dispose();
+  }, skip: skip);
+
   test('video frame reader', () {
     final v = NativeVideo.open('$scene/video.mp4')!;
     expect(v.width, greaterThan(0));

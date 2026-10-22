@@ -67,6 +67,9 @@ class _LiveScreenState extends State<LiveScreen> {
           s.hfovSigmaDeg = 3.0;
           s.save();
         }
+      case DebugEvent():
+      case RecordedEvent():
+        break;
       case PreviewEvent():
         if (e.snapshot) _snapshot?.complete(e);
         final sizeChanged = e.width != _w || e.height != _h;

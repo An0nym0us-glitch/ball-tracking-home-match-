@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <opencv2/imgproc.hpp>
 
 namespace pe {
 
@@ -66,6 +67,18 @@ void Engine::finish() {
   }
   collectDone();
   emitPending(t_now_, true);
+}
+
+std::vector<Vec2> Engine::corridorOutline() const {
+  std::vector<std::vector<cv::Point>> contours;
+  cv::Mat mask = detector_.corridorMask().clone();
+  cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+  std::vector<Vec2> out;
+  if (contours.empty()) return out;
+  const auto& c = *std::max_element(contours.begin(), contours.end(),
+                                    [](const auto& a, const auto& b) { return a.size() < b.size(); });
+  for (const cv::Point& p : c) out.emplace_back(p.x, p.y);
+  return out;
 }
 
 Engine::Stats Engine::stats() const {
