@@ -173,3 +173,14 @@ TEST(Analysis, IntervalsCoverTruth) {
   EXPECT_GE(covered_speed, static_cast<int>(0.7 * n));
   EXPECT_GE(covered_stumps_x, static_cast<int>(0.7 * n));
 }
+
+TEST(Analysis, NoBatterNeverGivesLbw) {
+  // Practice at empty stumps: a deflection short of the stumps is not a pad.
+  AnalysisConfig cfg = makeConfig(18.0);
+  cfg.batter_present = false;
+  const DeliveryResult r = runDelivery(straightOne(18.0), cfg, 31);
+  ASSERT_TRUE(r.valid) << r.reject_reason;
+  EXPECT_FALSE(r.lbw_applicable);
+  EXPECT_NE(r.impact, ImpactKind::Pad);
+  EXPECT_NE(r.impact, ImpactKind::Lost);
+}

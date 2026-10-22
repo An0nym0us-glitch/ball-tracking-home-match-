@@ -51,6 +51,10 @@ GATES = {
 # (the engine is still too cautious, see docs/accuracy.md).
 GATES_PLUMB = {"found_rate": 0.6, "wrong_lbw_rate": 0.10}
 
+# Practice (no batter): never an LBW verdict, "would it hit the stumps" never wrong.
+GATES_PRACTICE = {"found_rate": 0.7, "wrong_lbw_rate": 0.0, "wrong_stumps": 0, "lbw_given": 0,
+                  "line_at_stumps_cm": (7, 70)}
+
 
 def run_cli(cli: str, scene: str) -> dict | None:
     out = os.path.join(scene, "result.json")
@@ -109,6 +113,12 @@ def evaluate_scene(scene: str, result: dict) -> dict:
             err = 100.0 * err / truth
         row["errors"][k] = err
         row["covered"][k] = m["lo"] - 1e-6 <= truth <= m["hi"] + 1e-6
+    # Would the ball hit the stumps (no batter, or no pad hit): truth vs engine.
+    if "hitting" in gt and "lbw" not in gt:
+        row["stumps_truth"] = "hitting" if gt["hitting"] else "missing"
+        w = (d["lbw"].get("wickets") or {}).get("status")
+        row["stumps_engine"] = w
+        row["lbw_given"] = bool(d["lbw"].get("applicable"))
     if "lbw" in gt:
         lbw = d["lbw"]
         row["lbw_truth"] = gt["lbw"]["decision"]
@@ -133,6 +143,13 @@ def summarise(rows: list[dict]) -> dict:
          "found_rate": len(found) / max(len(rows), 1),
          "false_deliveries": sum(r.get("false_deliveries", 0) for r in rows),
          "metrics": {}}
+    st = [r for r in found if "stumps_truth" in r]
+    s["stumps"] = {"n": len(st),
+                   "correct": sum(1 for r in st if r["stumps_engine"] == r["stumps_truth"]),
+                   "umpires_call": sum(1 for r in st if r["stumps_engine"] == "umpire's call"),
+                   "wrong": sum(1 for r in st if r["stumps_engine"] in ("hitting", "missing")
+                                and r["stumps_engine"] != r["stumps_truth"]),
+                   "lbw_given": sum(1 for r in st if r["lbw_given"])}
     for k, (_, _, unit) in METRICS.items():
         errs = [abs(r["errors"][k]) for r in found if k in r["errors"]]
         cov = [r["covered"][k] for r in found if k in r["covered"]]
@@ -168,6 +185,9 @@ def report_md(summary: dict, rows: list[dict], preset: str) -> str:
     out = [f"### Preset `{preset}`", "",
            f"- Deliveries found: **{summary['found']}/{summary['scenes']}** "
            f"({100 * summary['found_rate']:.0f} %), false deliveries: {summary['false_deliveries']}",
+           f"- Would it hit the stumps ({summary['stumps']['n']} deliveries without a pad hit): correct "
+           f"{summary['stumps']['correct']}, umpire's call {summary['stumps']['umpires_call']}, "
+           f"**wrong {summary['stumps']['wrong']}**; LBW verdicts given anyway: {summary['stumps']['lbw_given']}",
            f"- LBW decisions ({summary['lbw']['n']} pad impacts): correct {summary['lbw']['correct']}, "
            f"umpire's call {summary['lbw']['umpires_call']}, impact not recognised {summary['lbw']['not_applicable']}, "
            f"**wrong {summary['lbw']['wrong']}**; true OUTs given OUT: "
@@ -200,7 +220,7 @@ def main():
     ap.add_argument("--generate", type=int, default=0, help="generate this many new scenes first")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--preset", default="720p30")
-    ap.add_argument("--scenario", choices=["random", "plumb"], default="random")
+    ap.add_argument("--scenario", choices=["random", "plumb", "practice"], default="random")
     ap.add_argument("--cli", default=os.path.join(ROOT, "engine", "build", "pocketeye-cli"))
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--report", help="write a Markdown summary here")
@@ -225,8 +245,12 @@ def main():
         with open(a.json, "w") as f:
             json.dump({"summary": summary, "rows": rows}, f, indent=1)
     if a.gate:
-        g = GATES[a.preset] if a.scenario == "random" else GATES_PLUMB
+        g = {"random": GATES[a.preset], "plumb": GATES_PLUMB, "practice": GATES_PRACTICE}[a.scenario]
         failures = []
+        if "wrong_stumps" in g and summary["stumps"]["wrong"] > g["wrong_stumps"]:
+            failures.append(f"'would it hit the stumps' wrong {summary['stumps']['wrong']} times")
+        if "lbw_given" in g and summary["stumps"]["lbw_given"] > g["lbw_given"]:
+            failures.append(f"LBW verdict given without a batter {summary['stumps']['lbw_given']} times")
         if summary["found_rate"] < g["found_rate"]:
             failures.append(f"found rate {summary['found_rate']:.2f} < {g['found_rate']}")
         if "out_rate" in g and summary["out_rate"] < g["out_rate"]:

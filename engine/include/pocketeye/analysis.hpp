@@ -26,6 +26,9 @@ struct AnalysisConfig {
   Pitch pitch;
   BallSpec ball;
   Hand batter = Hand::Right;
+  // false: bowling at empty stumps (practice). Nothing can stop the ball before
+  // the stumps, so no LBW; the result is whether it would hit them.
+  bool batter_present = true;
   bool no_shot_offered = false;
   double release_offset_m = 0.8;  // release point distance in front of the bowler's stumps
   double sigma_px = 1.0;          // detection noise assumed by the fit

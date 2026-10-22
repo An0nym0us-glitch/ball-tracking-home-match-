@@ -106,12 +106,18 @@ class _SessionScreenState extends State<SessionScreen> {
             const SizedBox(height: 8),
             SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'right', label: Text('Right-handed batter')),
-                ButtonSegment(value: 'left', label: Text('Left-handed batter')),
+                ButtonSegment(value: 'right', label: Text('Right-handed')),
+                ButtonSegment(value: 'left', label: Text('Left-handed')),
+                ButtonSegment(value: 'none', label: Text('No batter')),
               ],
               selected: {_batter},
               onSelectionChanged: (v) => setState(() => _batter = v.first),
             ),
+            if (_batter == 'none')
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text('Practice at empty stumps: no LBW, the app says whether each ball would hit the stumps.'),
+              ),
             const SizedBox(height: 24),
             Text("Only if the bowler's stumps are NOT visible in the camera picture:",
                 style: Theme.of(context).textTheme.titleSmall),

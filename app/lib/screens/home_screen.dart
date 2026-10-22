@@ -103,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: const Text('Pitch and match setup'),
                   subtitle: Text('Pitch ${s.lengthMeasured ? '${s.pitchLength.toStringAsFixed(2)} m' : s.isCalibrated ? 'about ${s.pitchLength.toStringAsFixed(1)} m (from the picture)' : 'length from the picture'}, stumps '
                       '${(s.stumpHeight * 100).toStringAsFixed(0)}x${(s.stumpWidth * 100).toStringAsFixed(0)} cm, '
-                      '${s.ball} ball, ${s.batter}-handed batter\n'
+                      '${s.ball} ball, ${s.batter == 'none' ? 'no batter (practice)' : '${s.batter}-handed batter'}\n'
                       '${s.isCalibrated ? 'Calibrated for ${s.imageWidth}x${s.imageHeight}' : 'Not calibrated yet'}'),
                   isThreeLine: true,
                   onTap: () => _open((s) => SessionScreen(session: s)),

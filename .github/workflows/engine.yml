@@ -40,6 +40,11 @@ jobs:
           python3 tools/eval/run_eval.py --generate 12 --seed 202 --scenario plumb \
             --work out/eval_plumb --report out/eval_plumb.md --gate
 
+      - name: Synthetic accuracy gate (practice: no batter)
+        run: |
+          python3 tools/eval/run_eval.py --generate 12 --seed 303 --scenario practice \
+            --work out/eval_practice --report out/eval_practice.md --gate
+
       # The app's screens and workers against the engine just built (the
       # calibration screen, live mode, the worker isolates).
       - uses: subosito/flutter-action@v2

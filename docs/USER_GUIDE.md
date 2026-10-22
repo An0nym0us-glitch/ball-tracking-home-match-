@@ -45,7 +45,9 @@ When Windows asks about network access, allow **private networks**. The phone ca
 In the app, open **Pitch and match setup** and enter:
 
 - the stump height (ground to the top of the stumps) and width (outer edge to outer edge), measured with a tape;
-- the ball type (tennis/tape, plastic, rubber, leather) and the batter (right- or left-handed);
+- the ball type (tennis/tape, plastic, rubber, leather) and the batter: right-handed, left-handed, or
+  **No batter** for bowling practice at empty stumps (then there is no LBW; each ball shows its speed, line,
+  length and whether it would hit the stumps, or "BOWLED" when it hits them);
 - the pitch length (stumps to stumps), **or leave it empty**: the app then measures it from the picture.
   This needs the bowler's stumps in the picture. A tape measure is still more exact (the picture gives
   about ±0.3 m), and the app asks for it when the picture is not exact enough.

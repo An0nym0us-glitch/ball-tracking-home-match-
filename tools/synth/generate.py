@@ -99,6 +99,11 @@ def random_scene(rng: np.random.Generator, preset: str, overrides: dict | None =
         dl["turn_deg"] = float(rng.uniform(-1.0, 1.0))
         dl["pad_y"] = float(L - rng.uniform(0.6, 1.1))
         dl["speed"] = float(rng.uniform(*SPEEDS[ball]) * 0.85)
+    if scenario == "practice":
+        # Bowling at empty stumps: no batter, no pad.
+        scene["batter_present"] = False
+        scene["delivery"]["pad_y"] = None
+        scene["hand"] = "right"  # off/leg sides as the app reports them without a batter
     if overrides:
         for k, v in overrides.items():
             if k == "delivery":
@@ -188,7 +193,7 @@ def render_scene(scene: dict, out_dir: str, seed: int) -> dict:
                 render.draw_stumps(img, cam, L, s["stump_height"], s["stump_width"])
             elif kind == "stumps_near":
                 render.draw_stumps(img, cam, 0.0, s["stump_height"], s["stump_width"])
-            elif kind == "batter":
+            elif kind == "batter" and s.get("batter_present", True):
                 render.draw_batter(img, cam, bat_x, bat_y, t, (shirt, head), phase)
             elif kind == "bowler":
                 render.draw_bowler(img, cam, d.release, t, d.t_release)
@@ -215,7 +220,7 @@ def render_scene(scene: dict, out_dir: str, seed: int) -> dict:
         "taps": stump_taps(cam, s, rng),
         "camera_hint": {"hfov_deg": round(s["hfov_deg"] + float(rng.uniform(-1.5, 1.5)), 1)},
         "ball": d.ball,
-        "batter": s["hand"],
+        "batter": s["hand"] if s.get("batter_present", True) else "none",
     }
     if s["give_length"]:
         config["pitch"]["length_m"] = round(L, 2)
@@ -261,7 +266,7 @@ def main():
     ap.add_argument("--preset", choices=sorted(PRESETS), default="720p30")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--override", default=None, help="JSON dict merged into every scene")
-    ap.add_argument("--scenario", choices=["random", "plumb"], default="random")
+    ap.add_argument("--scenario", choices=["random", "plumb", "practice"], default="random")
     a = ap.parse_args()
     overrides = json.loads(a.override) if a.override else None
     for d in generate(a.out, a.count, a.seed, a.preset, a.workers, overrides, a.scenario):

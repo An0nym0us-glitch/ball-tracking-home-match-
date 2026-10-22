@@ -50,7 +50,7 @@ class _TopView extends CustomPainter {
     canvas.drawLine(p(-sw / 2, L), p(sw / 2, L), stump);
     final label = TextPainter(
         text: TextSpan(
-            text: batter == 'right' ? 'off side <- | -> leg side' : 'leg side <- | -> off side',
+            text: batter == 'left' ? 'leg side <- | -> off side' : 'off side <- | -> leg side',
             style: const TextStyle(fontSize: 11, color: Colors.black87)),
         textDirection: TextDirection.ltr)
       ..layout();

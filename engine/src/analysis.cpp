@@ -584,6 +584,11 @@ DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const
       kind = ImpactKind::None;
     } else if (p.y() >= L - 0.10) {
       kind = ImpactKind::Stumps;
+    } else if (!cfg.batter_present) {
+      // No batter: only the stumps can stop the ball. A deflection just short
+      // of the stumps line is the ball hitting them; a ball that is only lost
+      // from view proves nothing (the projected path says if it would hit).
+      kind = kind == ImpactKind::Pad && p.y() >= L - 0.4 ? ImpactKind::Stumps : ImpactKind::None;
     }
     if (kind == ImpactKind::None) t_imp = kNaN;
   }

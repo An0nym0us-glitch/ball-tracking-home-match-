@@ -168,8 +168,10 @@ class Delivery {
         'Impact: ${d.impact}',
         'Wickets: ${d.wickets}',
         'LBW: ${d.decision}',
-      ] else
+      ] else ...[
+        if (impactKind == 'stumps') 'Hit the stumps: BOWLED',
         'Stumps: ${d.wickets}',
+      ],
     ];
   }
 }

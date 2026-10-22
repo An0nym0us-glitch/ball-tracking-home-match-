@@ -89,8 +89,11 @@ LoadedConfig loadConfig(const json& j) {
   if (!kind) throw std::runtime_error("unknown ball type: " + ball);
   a.ball = ballSpec(*kind);
   const std::string batter = j.value("batter", "right");
-  if (batter != "right" && batter != "left") throw std::runtime_error("batter must be right or left");
-  a.batter = batter == "left" ? Hand::Left : Hand::Right;
+  if (batter != "right" && batter != "left" && batter != "none") {
+    throw std::runtime_error("batter must be right, left or none");
+  }
+  a.batter = batter == "left" ? Hand::Left : Hand::Right;  // "none": sides as for a right-hander
+  a.batter_present = batter != "none";
   a.no_shot_offered = j.value("no_shot_offered", false);
   a.release_offset_m = j.value("release_offset_m", 0.8);
   a.sigma_px = j.value("sigma_px", 1.0);
