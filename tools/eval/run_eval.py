@@ -53,7 +53,7 @@ GATES_PLUMB = {"found_rate": 0.6, "wrong_lbw_rate": 0.10}
 
 # Practice (no batter): never an LBW verdict, "would it hit the stumps" never wrong.
 # Balls that hit empty stumps ("No batter"): never "missing", never an LBW
-# verdict; BOWLED or "would hit" measured 38 % (16 CI scenes) to 69 % (30
+# verdict; BOWLED or "would hit" measured 36 % (30 scenes) to 43 % (16 CI
 # scenes), the rest umpire's call (docs/accuracy.md).
 GATES_BOWLED = {"found_rate": 0.7, "wrong_lbw_rate": 0.0, "bowled_missing": 0, "bowled_lbw": 0, "bowled_rate": 0.3}
 

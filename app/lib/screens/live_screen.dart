@@ -41,6 +41,7 @@ class _LiveScreenState extends State<LiveScreen> {
   Map<String, dynamic>? _ball; // the ball followed in the shown picture
   Map<String, dynamic>? _debug;
   bool _debugView = false;
+  String? _engineError; // the engine could not start: no tracking until fixed
 
   Session get s => widget.session;
 
@@ -63,6 +64,7 @@ class _LiveScreenState extends State<LiveScreen> {
       case StatusEvent():
         setState(() {
           _status = e.text;
+          if (e.text.startsWith('Tracking:')) _engineError = null;
           _connected = e.connected;
         });
         // The camera app reports its field of view (older Android API: roughly right).
@@ -95,7 +97,10 @@ class _LiveScreenState extends State<LiveScreen> {
         final d = Delivery(e.json, index: _deliveries.length + 1)..frames = e.frames;
         setState(() => _deliveries.insert(0, d));
       case ErrorEvent():
-        setState(() => _status = e.message);
+        setState(() {
+          _status = e.message;
+          if (e.message.startsWith('Engine:')) _engineError = e.message.substring(7).trim();
+        });
     }
   }
 
@@ -140,7 +145,7 @@ class _LiveScreenState extends State<LiveScreen> {
   @override
   Widget build(BuildContext context) {
     final qr = jsonEncode({'app': 'pocketeye', 'hosts': _ips, 'port': defaultPort, 'token': _code});
-    final ready = _connected && s.isCalibrated && s.matchesSize(_w, _h);
+    final ready = _connected && s.isCalibrated && s.matchesSize(_w, _h) && _engineError == null;
     final t = Theme.of(context).textTheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Live: phone camera to this laptop')),
@@ -156,6 +161,9 @@ class _LiveScreenState extends State<LiveScreen> {
           ],
           const SizedBox(height: 8),
           Text(_status, style: t.titleSmall),
+          if (_engineError != null)
+            Text('Tracking is OFF: $_engineError. Press Calibrate and check the points and measurements.',
+                style: t.titleSmall!.copyWith(color: Colors.red.shade700)),
           if (_preview != null)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),

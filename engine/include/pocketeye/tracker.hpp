@@ -31,7 +31,7 @@ struct FrameCandidates {
 // so a ball path survives a few of them while chains of random fragments,
 // which turn at every step, do not grow.
 struct PathConfig {
-  int max_gap = 5;              // frames between consecutive detections (4 missed)
+  int max_gap = 3;              // frames between consecutive detections (2 missed)
   double max_step_frac = 0.2;   // max image step per frame, fraction of the image width
   double node_reward = 3.0;
   double gap_cost = 1.5;        // per missed frame

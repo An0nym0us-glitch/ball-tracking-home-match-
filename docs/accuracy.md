@@ -61,19 +61,19 @@ measured separately (next section).
 - Deliveries found: **56/60** (93 %), false deliveries: 0
 - Would it hit the stumps (11 deliveries without a pad hit): correct 8, umpire's call 3, **wrong 0**; LBW verdicts given anyway: 5
 - LBW decisions (44 pad impacts): correct 25, umpire's call 9, impact not recognised 8, **wrong 2**; true OUTs given OUT: 2/6
-- Analysis time per delivery: median 714 ms, 90th percentile 1010 ms; detection 9.6 ms/frame
+- Analysis time per delivery: median 714 ms, 90th percentile 969 ms; detection 9.7 ms/frame
 
 | Metric | Median error | 90 % of errors below | 90 % interval contains truth |
 |---|---|---|---|
-| Release speed | 2.85 % | 9.61 % | 79 % (n=56) |
+| Release speed | 2.97 % | 9.61 % | 79 % (n=56) |
 | Average speed | 3.89 % | 15.16 % | 82 % (n=56) |
-| Swing | 2.66 cm | 11.41 cm | 96 % (n=56) |
-| Turn | 0.41 deg | 1.34 deg | 93 % (n=46) |
-| Length (bounce point) | 0.18 m | 0.57 m | 59 % (n=46) |
+| Swing | 2.66 cm | 14.44 cm | 95 % (n=56) |
+| Turn | 0.39 deg | 1.34 deg | 93 % (n=46) |
+| Length (bounce point) | 0.18 m | 0.57 m | 57 % (n=46) |
 | Line at bounce | 0.89 cm | 3.60 cm | 87 % (n=46) |
-| Height at stumps | 6.97 cm | 41.29 cm | 87 % (n=54) |
+| Height at stumps | 7.08 cm | 41.29 cm | 87 % (n=54) |
 | Line at stumps | 3.13 cm | 24.85 cm | 89 % (n=54) |
-| Line at pad impact | 7.88 cm | 25.26 cm | 42 % (n=36) |
+| Line at pad impact | 8.01 cm | 25.26 cm | 43 % (n=37) |
 
 Missed scenes: scene_0014 (missed), scene_0016 (missed), scene_0023 (missed), scene_0055 (missed)
 
@@ -83,20 +83,20 @@ Wrong LBW calls: scene_0008 engine NOT OUT vs truth OUT {'pitching': ('full toss
 
 - Deliveries found: **29/30** (97 %), false deliveries: 0
 - Would it hit the stumps (5 deliveries without a pad hit): correct 5, umpire's call 0, **wrong 0**; LBW verdicts given anyway: 3
-- LBW decisions (24 pad impacts): correct 17, umpire's call 4, impact not recognised 3, **wrong 0**; true OUTs given OUT: 0/2
-- Analysis time per delivery: median 899 ms, 90th percentile 1498 ms; detection 16.5 ms/frame
+- LBW decisions (24 pad impacts): correct 18, umpire's call 3, impact not recognised 3, **wrong 0**; true OUTs given OUT: 0/2
+- Analysis time per delivery: median 1086 ms, 90th percentile 1435 ms; detection 17.4 ms/frame
 
 | Metric | Median error | 90 % of errors below | 90 % interval contains truth |
 |---|---|---|---|
-| Release speed | 2.50 % | 12.59 % | 72 % (n=29) |
-| Average speed | 3.31 % | 23.46 % | 69 % (n=29) |
-| Swing | 2.89 cm | 14.57 cm | 76 % (n=29) |
-| Turn | 0.35 deg | 2.84 deg | 96 % (n=25) |
-| Length (bounce point) | 0.11 m | 1.03 m | 60 % (n=25) |
-| Line at bounce | 0.72 cm | 1.91 cm | 92 % (n=25) |
-| Height at stumps | 5.14 cm | 52.20 cm | 93 % (n=28) |
-| Line at stumps | 2.82 cm | 37.05 cm | 96 % (n=28) |
-| Line at pad impact | 5.28 cm | 30.76 cm | 50 % (n=22) |
+| Release speed | 2.50 % | 13.55 % | 76 % (n=29) |
+| Average speed | 4.45 % | 23.46 % | 62 % (n=29) |
+| Swing | 2.89 cm | 9.19 cm | 79 % (n=29) |
+| Turn | 0.39 deg | 2.72 deg | 100 % (n=25) |
+| Length (bounce point) | 0.11 m | 0.80 m | 56 % (n=25) |
+| Line at bounce | 0.81 cm | 1.91 cm | 92 % (n=25) |
+| Height at stumps | 6.59 cm | 30.06 cm | 100 % (n=28) |
+| Line at stumps | 2.84 cm | 37.05 cm | 93 % (n=28) |
+| Line at pad impact | 7.13 cm | 30.76 cm | 45 % (n=22) |
 
 Missed scenes: scene_0010 (missed)
 
@@ -104,20 +104,20 @@ Missed scenes: scene_0010 (missed)
 
 - Deliveries found: **19/20** (95 %), false deliveries: 0
 - Would it hit the stumps (0 deliveries without a pad hit): correct 0, umpire's call 0, **wrong 0**; LBW verdicts given anyway: 0
-- LBW decisions (18 pad impacts): correct 4, umpire's call 6, impact not recognised 7, **wrong 1**; true OUTs given OUT: 4/13
-- Analysis time per delivery: median 764 ms, 90th percentile 1072 ms; detection 9.4 ms/frame
+- LBW decisions (18 pad impacts): correct 3, umpire's call 7, impact not recognised 7, **wrong 1**; true OUTs given OUT: 3/13
+- Analysis time per delivery: median 720 ms, 90th percentile 1033 ms; detection 8.6 ms/frame
 
 | Metric | Median error | 90 % of errors below | 90 % interval contains truth |
 |---|---|---|---|
-| Release speed | 4.31 % | 6.84 % | 63 % (n=19) |
-| Average speed | 3.29 % | 11.61 % | 79 % (n=19) |
+| Release speed | 4.37 % | 6.84 % | 58 % (n=19) |
+| Average speed | 4.34 % | 11.61 % | 74 % (n=19) |
 | Swing | 3.50 cm | 11.38 cm | 89 % (n=19) |
-| Turn | 0.72 deg | 2.86 deg | 81 % (n=16) |
-| Length (bounce point) | 0.42 m | 0.67 m | 44 % (n=16) |
-| Line at bounce | 0.92 cm | 3.24 cm | 88 % (n=16) |
-| Height at stumps | 8.78 cm | 20.12 cm | 78 % (n=18) |
-| Line at stumps | 1.73 cm | 6.39 cm | 89 % (n=18) |
-| Line at pad impact | 1.57 cm | 3.92 cm | 83 % (n=12) |
+| Turn | 0.72 deg | 1.10 deg | 87 % (n=15) |
+| Length (bounce point) | 0.47 m | 0.86 m | 27 % (n=15) |
+| Line at bounce | 0.89 cm | 3.24 cm | 87 % (n=15) |
+| Height at stumps | 14.05 cm | 44.93 cm | 78 % (n=18) |
+| Line at stumps | 2.04 cm | 7.50 cm | 83 % (n=18) |
+| Line at pad impact | 1.59 cm | 3.92 cm | 82 % (n=11) |
 
 Missed scenes: scene_0007 (missed)
 
@@ -125,24 +125,24 @@ Wrong LBW calls: scene_0014 engine NOT OUT vs truth OUT {'pitching': ('in line',
 
 ### Old phone streaming to the laptop: `720p30`, every frame a JPEG of quality 70
 
-- Deliveries found: **56/60** (93 %), false deliveries: 1
+- Deliveries found: **55/60** (92 %), false deliveries: 0
 - Would it hit the stumps (10 deliveries without a pad hit): correct 7, umpire's call 3, **wrong 0**; LBW verdicts given anyway: 3
-- LBW decisions (45 pad impacts): correct 28, umpire's call 8, impact not recognised 7, **wrong 2**; true OUTs given OUT: 1/6
-- Analysis time per delivery: median 591 ms, 90th percentile 913 ms; detection 10.1 ms/frame
+- LBW decisions (44 pad impacts): correct 28, umpire's call 8, impact not recognised 6, **wrong 2**; true OUTs given OUT: 1/6
+- Analysis time per delivery: median 622 ms, 90th percentile 1026 ms; detection 10.5 ms/frame
 
 | Metric | Median error | 90 % of errors below | 90 % interval contains truth |
 |---|---|---|---|
-| Release speed | 2.55 % | 18.18 % | 84 % (n=56) |
-| Average speed | 4.40 % | 40.85 % | 79 % (n=56) |
-| Swing | 2.37 cm | 29.57 cm | 89 % (n=56) |
-| Turn | 0.43 deg | 1.01 deg | 93 % (n=44) |
-| Length (bounce point) | 0.12 m | 0.46 m | 70 % (n=44) |
-| Line at bounce | 0.85 cm | 2.60 cm | 91 % (n=44) |
-| Height at stumps | 5.07 cm | 33.21 cm | 89 % (n=54) |
-| Line at stumps | 3.00 cm | 31.60 cm | 89 % (n=54) |
+| Release speed | 2.73 % | 12.81 % | 84 % (n=55) |
+| Average speed | 4.65 % | 40.85 % | 76 % (n=55) |
+| Swing | 2.35 cm | 21.69 cm | 89 % (n=55) |
+| Turn | 0.43 deg | 1.01 deg | 95 % (n=44) |
+| Length (bounce point) | 0.12 m | 0.46 m | 68 % (n=44) |
+| Line at bounce | 0.80 cm | 2.60 cm | 91 % (n=44) |
+| Height at stumps | 4.96 cm | 28.90 cm | 89 % (n=53) |
+| Line at stumps | 2.52 cm | 31.60 cm | 89 % (n=53) |
 | Line at pad impact | 9.08 cm | 26.64 cm | 39 % (n=38) |
 
-Missed scenes: scene_0003 (missed), scene_0016 (missed), scene_0052 (missed), scene_0055 (missed)
+Missed scenes: scene_0003 (missed), scene_0016 (missed), scene_0052 (missed), scene_0055 (missed), scene_0059 (missed)
 
 Wrong LBW calls: scene_0008 engine NOT OUT vs truth OUT {'pitching': ('full toss', 'full toss'), 'impact': ('outside leg', 'in line'), 'wickets': ("umpire's call", 'hitting')}; scene_0020 engine NOT OUT vs truth OUT {'pitching': ('outside leg', 'outside off'), 'impact': ('outside leg', 'in line'), 'wickets': ('missing', 'hitting')}
 
@@ -173,39 +173,43 @@ What changed:
   width and height, is BOWLED, and then the stumps verdict is "hitting".
 - A deflection at the stumps line counts only if the ball is inside the stumps (a ball passing just beside or
   over them is partly hidden behind them, which looked like a deflection: 2 wrong "hitting" calls before).
-- The tracker bridges up to 4 missed frames (was 2), and needs 1.5 px of movement per frame for at most 2 frames
-  across a gap (a slow ball near the far stumps moves only 1-4 px per frame). Found: CI scenes 22 -> 23/24,
-  48 scenes 41 -> 43, bowled 25 -> 28/30; plumb OUT 3 -> 4 of 13; no new false deliveries on camera video
-  (one on the JPEG stream, 56/60 above).
 - The app has a quick "Batter: Right / Left / Nobody (practice)" switch on the live screens.
+
+Tried and taken back: letting the tracker bridge up to 4 missed frames (a slow ball near the far stumps moves only
+1-4 px per frame and is lost for a few frames). It found more balls (CI scenes 22 -> 23/24, bowled 25 -> 28/30,
+BOWLED 1 -> 5) but on the CI plumb scenes it picked up the ball rolling away after the pad as a delivery of its
+own and judged it NOT OUT (the real track of that ball is rejected as "not moving towards the batter": the path
+extended a second back before the first sighting can blow up numerically, a known issue). Fixing that made the
+release speed of balls first seen late much less certain, so both wait for a proper fix.
 
 ### Balls hitting empty stumps (`720p30`, scenario `bowled`, "No batter")
 
-- Deliveries found: **28/30** (93 %), false deliveries: 0
-- Would it hit the stumps (28 deliveries without a pad hit): correct 19, umpire's call 9, **wrong 0**; LBW verdicts given anyway: 0
+- Deliveries found: **25/30** (83 %), false deliveries: 1
+- Would it hit the stumps (25 deliveries without a pad hit): correct 12, umpire's call 13, **wrong 0**; LBW verdicts given anyway: 0
 - LBW decisions (0 pad impacts): correct 0, umpire's call 0, impact not recognised 0, **wrong 0**; true OUTs given OUT: 0/0
-- Hit the stumps (16 found): BOWLED 5, otherwise 'would hit' 6, **'missing' 0**; LBW verdict instead 0 (NOT OUT 0)
-- Analysis time per delivery: median 435 ms, 90th percentile 823 ms; detection 10.5 ms/frame
+- Hit the stumps (14 found): BOWLED 1, otherwise 'would hit' 4, **'missing' 0**; LBW verdict instead 0 (NOT OUT 0)
+- Analysis time per delivery: median 381 ms, 90th percentile 708 ms; detection 10.2 ms/frame
 
 | Metric | Median error | 90 % of errors below | 90 % interval contains truth |
 |---|---|---|---|
-| Release speed | 2.46 % | 11.07 % | 82 % (n=28) |
-| Average speed | 3.23 % | 21.01 % | 93 % (n=28) |
-| Swing | 2.19 cm | 14.02 cm | 89 % (n=28) |
-| Turn | 0.51 deg | 1.53 deg | 73 % (n=26) |
-| Length (bounce point) | 0.16 m | 0.40 m | 65 % (n=26) |
-| Line at bounce | 1.03 cm | 5.77 cm | 85 % (n=26) |
-| Height at stumps | 3.85 cm | 44.74 cm | 93 % (n=28) |
-| Line at stumps | 1.51 cm | 5.40 cm | 96 % (n=28) |
+| Release speed | 2.35 % | 5.58 % | 88 % (n=25) |
+| Average speed | 2.69 % | 8.03 % | 96 % (n=25) |
+| Swing | 2.31 cm | 14.42 cm | 84 % (n=25) |
+| Turn | 0.37 deg | 1.41 deg | 75 % (n=24) |
+| Length (bounce point) | 0.12 m | 0.31 m | 75 % (n=24) |
+| Line at bounce | 1.03 cm | 4.90 cm | 88 % (n=24) |
+| Height at stumps | 3.38 cm | 10.45 cm | 96 % (n=25) |
+| Line at stumps | 1.36 cm | 3.29 cm | 100 % (n=25) |
 
-Missed scenes: scene_0000 (missed), scene_0020 (missed)
+Missed scenes: scene_0000 (missed), scene_0001 (missed), scene_0012 (missed), scene_0020 (missed), scene_0025 (missed)
 
-On the CI set (16 scenes, seed 404): 8 stump hits found, 3 BOWLED, 5 umpire's call, none "missing".
+On the CI set (16 scenes, seed 404): 7 stump hits found, 2 BOWLED, 1 "would hit", 4 umpire's call, none "missing".
 
 ### Bolder decisions (option)
 
 A component is definite when the engine is 90 % sure (over its error ranges, widened 1.8 times); otherwise it is
-umpire's call. At 80 % (the app's "Bolder decisions"), same scenes:
+umpire's call. At 80 % (the app's "Bolder decisions"), same scenes (measured with the 4-missed-frames tracker
+above; the decision threshold works the same with the current one):
 
 | Set | LBW correct / umpire's call / wrong, 90 % | Same at 80 % |
 |---|---|---|
