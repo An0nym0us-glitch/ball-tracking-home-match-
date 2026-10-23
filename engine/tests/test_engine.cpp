@@ -212,3 +212,57 @@ TEST(LiveFollower, IgnoresMovementAwayFromTheStumps) {
     if (k >= 3) EXPECT_TRUE(f.state((10 + k) / fps).visible) << k;
   }
 }
+
+namespace {
+// A ball moving steadily (30 fps), as detector candidates.
+std::vector<Candidate> ballAt(int k) {
+  Candidate c;
+  c.uv = Vec2(700 - 4 * k, 60 + 20 * k);
+  c.radius_px = 3;
+  return {c};
+}
+}  // namespace
+
+TEST(LiveFollower, SpotInsideAPersonNeedsTheBallCheck) {
+  const double fps = 30;
+  for (const bool is_ball : {false, true}) {
+    LiveFollower f(1280, Vec2(640, 330));
+    f.enableChecks(true);
+    f.setPeople({cv::Rect2f(600, 0, 200, 400)}, 100.0);  // the spot is inside this person
+    bool asked = false, shown = false;
+    for (int k = 0; k < 12; ++k) {
+      f.update(k / fps, ballAt(k));
+      for (const auto& rq : f.takeCheckRequests()) {
+        asked = true;
+        f.applyCheck(rq.id, k / fps, is_ball, rq.uv);
+      }
+      shown |= f.state(k / fps).visible;
+    }
+    EXPECT_TRUE(asked);
+    EXPECT_EQ(shown, is_ball) << "judged a ball: " << is_ball;
+  }
+  // Outside people: no check needed, shown as without the AI.
+  LiveFollower f(1280, Vec2(640, 330));
+  f.enableChecks(true);
+  f.setPeople({cv::Rect2f(0, 0, 100, 100)}, 100.0);
+  for (int k = 0; k < 6; ++k) f.update(k / fps, ballAt(k));
+  EXPECT_TRUE(f.takeCheckRequests().empty());
+  EXPECT_TRUE(f.state(5 / fps).visible);
+}
+
+TEST(LiveFollower, BallCheckFindsTheLostBallAgain) {
+  const double fps = 30;
+  LiveFollower f(1280, Vec2(640, 330));
+  f.enableChecks(true);
+  for (int k = 0; k < 6; ++k) f.update(k / fps, ballAt(k));
+  ASSERT_TRUE(f.state(5 / fps).visible);
+  // The ball hardly moves in the picture now: the detector loses it.
+  f.update(6 / fps, {});
+  const auto rq = f.takeCheckRequests();
+  ASSERT_EQ(rq.size(), 1u);
+  const Vec2 found = ballAt(6)[0].uv + Vec2(1, 1);
+  f.applyCheck(rq[0].id, 6.5 / fps, true, found);
+  const LiveBall b = f.state(6.5 / fps);
+  ASSERT_TRUE(b.visible);
+  EXPECT_LT((b.uv - found).norm(), 1e-6);
+}

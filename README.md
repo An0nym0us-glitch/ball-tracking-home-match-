@@ -8,6 +8,8 @@ For every delivery it reports:
 
 Status: **Steps 1–4 are built**: tracking engine, Windows laptop app, camera app for old phones (Android 5+) and phone-only Android app.
 The app finds the stumps by itself and can measure the pitch length from the picture.
+The laptop app has an optional AI assist (YOLOX-Nano, on a dedicated GPU, integrated GPU or the CPU) that finds the
+bowler and batter and double-checks ball candidates near them.
 Everything is tested on synthetic videos only, not yet on real phones or real cricket.
 - [docs/USER_GUIDE.md](docs/USER_GUIDE.md): **download, install and use the apps** (start here).
 - [docs/PLAN.md](docs/PLAN.md): architecture and build order.

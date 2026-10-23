@@ -63,7 +63,9 @@ PE_API int32_t pe_yuv420_to_jpeg(const uint8_t* y, const uint8_t* u, const uint8
 
 /* What the detector sees, for a live debugging view: {"width", "height",
  * "corridor": [[u, v], ...] (outline of the watched area), "candidates":
- * [[t, u, v, radius, strength], ...] (ball candidates of the last second)}. */
+ * [[t, u, v, radius, strength], ...] (ball candidates of the last second),
+ * "people": [{"box": [x, y, w, h], "role": "bowler" | "batter" | "other"}]
+ * (AI assist only)}. */
 PE_API int32_t pe_debug_json(pe_engine* e, char* buf, int32_t buf_len);
 /* The ball being followed right now, for drawing on the live picture:
  * {"visible": false} or {"visible": true, "predicted": bool, "t", "uv": [u, v],

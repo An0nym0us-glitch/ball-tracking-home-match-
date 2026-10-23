@@ -7,6 +7,9 @@
 
 #include <opencv2/imgcodecs.hpp>
 
+#ifdef PE_WITH_AI
+#include "pocketeye/ai.hpp"
+#endif
 #include "pocketeye/autocal.hpp"
 #include "pocketeye/config.hpp"
 #include "pocketeye/engine.hpp"
@@ -33,11 +36,16 @@ void usage() {
       --gray                   detect on brightness only (like a luma-only stream)
       --jpeg-stream            frames were each compressed as a JPEG (the old-phone
                                camera app's stream to the laptop)
+      --ai-model m.onnx        YOLO assist (people; batter seen or not with
+      --ai-device dgpu         --batter-auto); device dgpu, igpu or cpu
+      --batter-auto            LBW only when a batter is seen at the stumps
       --tracks-only            debugging: list raw tracks without analysing them
       --dump-candidates f.json debugging: per-frame ball candidates
   pocketeye-cli autocal --image frame.png --config session.json [--out found.json]
       finds the stumps in a picture (taps in the config are ignored); measures
       the pitch length if the config has none and both stump sets are visible
+  pocketeye-cli ai-test --model yolox_tiny.onnx --image picture.jpg [--device dgpu|igpu|cpu]
+      runs the YOLO model on a picture: device used, people and balls found
   pocketeye-cli benchmark [--width 1280 --height 720 --frames 240]
   pocketeye-cli version
 )";
@@ -49,7 +57,8 @@ std::map<std::string, std::string> parseArgs(int argc, char** argv, int start) {
     std::string k = argv[i];
     if (k.rfind("--", 0) != 0) throw std::runtime_error("unexpected argument: " + k);
     k = k.substr(2);
-    if (k == "no-shot" || k == "keep-rejected" || k == "tracks-only" || k == "gray" || k == "jpeg-stream") {
+    if (k == "no-shot" || k == "keep-rejected" || k == "tracks-only" || k == "gray" || k == "jpeg-stream" ||
+        k == "batter-auto") {
       a[k] = "1";
     } else {
       if (i + 1 >= argc) throw std::runtime_error("missing value for --" + k);
@@ -100,6 +109,10 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
   if (args.count("batter")) cj["batter"] = args.at("batter");
   if (args.count("no-shot")) cj["no_shot_offered"] = true;
   if (args.count("jpeg-stream")) cj["source"] = "jpeg_stream";
+  if (args.count("ai-model")) {
+    cj["ai"] = {{"model", args.at("ai-model")}, {"device", args.count("ai-device") ? args.at("ai-device") : "dgpu"}};
+  }
+  if (args.count("batter-auto")) cj["batter_auto"] = true;
   pe::LoadedConfig cfg = pe::loadConfig(cj);
   cfg.engine.keep_rejected = args.count("keep-rejected") > 0 || args.count("tracks-only") > 0;
   cfg.engine.skip_analysis = args.count("tracks-only") > 0;
@@ -144,6 +157,30 @@ int cmdAnalyze(const std::map<std::string, std::string>& args) {
 
 }  // namespace
 
+#ifdef PE_WITH_AI
+int cmdAiTest(const std::map<std::string, std::string>& args) {
+  const cv::Mat img = cv::imread(args.at("image"), cv::IMREAD_COLOR);
+  if (img.empty()) throw std::runtime_error("cannot read " + args.at("image"));
+  pe::AiConfig c;
+  c.enabled = true;
+  c.model = args.at("model");
+  c.device = args.count("device") ? args.at("device") : "dgpu";
+  pe::AiAssist ai(c);
+  json people = json::array(), balls = json::array();
+  for (const auto& [cls, list] : {std::pair{pe::AiAssist::kPerson, &people}, {pe::AiAssist::kSportsBall, &balls}}) {
+    for (const pe::AiBox& b : ai.detectNow(img, cls, 0.3f)) {
+      list->push_back({{"box", {b.box.x, b.box.y, b.box.width, b.box.height}}, {"score", b.score}});
+    }
+  }
+  const pe::AiStatus st = ai.status();
+  std::cout << json{{"device", st.device}, {"note", st.note}, {"error", st.error}, {"people", people},
+                    {"balls", balls}}
+                   .dump(2)
+            << "\n";
+  return st.ready ? 0 : 3;
+}
+#endif
+
 int main(int argc, char** argv) {
   if (argc < 2) {
     usage();
@@ -159,6 +196,9 @@ int main(int argc, char** argv) {
     if (cmd == "calibrate") return cmdCalibrate(args);
     if (cmd == "analyze") return cmdAnalyze(args);
     if (cmd == "autocal") return cmdAutocal(args);
+#ifdef PE_WITH_AI
+    if (cmd == "ai-test") return cmdAiTest(args);
+#endif
     if (cmd == "benchmark") {
       const int w = args.count("width") ? std::stoi(args.at("width")) : 1280;
       const int h = args.count("height") ? std::stoi(args.at("height")) : 720;

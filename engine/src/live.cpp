@@ -60,6 +60,44 @@ bool LiveFollower::headsForTarget(const Track& tr) const {
   return sp > 0 && tr.v.dot(to) / (sp * to.norm()) > 0.5;  // within 60 degrees
 }
 
+bool LiveFollower::inPerson(const Vec2& uv, double t) const {
+  if (t > people_until_) return false;
+  for (const cv::Rect2f& r : people_) {
+    if (uv.x() >= r.x && uv.x() <= r.x + r.width && uv.y() >= r.y && uv.y() <= r.y + r.height) return true;
+  }
+  return false;
+}
+
+void LiveFollower::request(Track& tr, double t) {
+  tr.check = 1;
+  ++tr.checks;
+  tr.hits_at_check = tr.hits;
+  requests_.push_back({tr.id, t, tr.p, tr.v, tr.r});
+}
+
+std::vector<LiveFollower::CheckRequest> LiveFollower::takeCheckRequests() {
+  std::vector<CheckRequest> out;
+  out.swap(requests_);
+  return out;
+}
+
+void LiveFollower::applyCheck(int id, double t, bool is_ball, const Vec2& uv) {
+  if (id == recover_id_) {
+    recover_id_ = 0;
+    // The lost ball found again: continue from there.
+    if (is_ball && active_ && t > ball_.t) {
+      Candidate c;
+      c.uv = uv;
+      c.radius_px = ball_.r;
+      advance(ball_, t, c);
+    }
+    return;
+  }
+  for (Track& tr : tentative_) {
+    if (tr.id == id && tr.check == 1) tr.check = is_ball ? 2 : 3;
+  }
+}
+
 void LiveFollower::update(double t, const std::vector<Candidate>& cands) {
   std::vector<bool> used(cands.size(), false);
   if (active_) {
@@ -70,6 +108,11 @@ void LiveFollower::update(double t, const std::vector<Candidate>& cands) {
     } else if (++ball_.misses > kMaxMisses) {
       active_ = false;
     } else {
+      if (checks_on_ && recover_id_ == 0) {
+        // Not seen moving (it may hardly move in the picture): look where it should be.
+        recover_id_ = next_id_++;
+        requests_.push_back({recover_id_, ball_.t, ball_.p, ball_.v, ball_.r});
+      }
       // Carry the ball forward so the next prediction starts from where it should be.
       const double dt = t - ball_.t;
       ball_.p += ball_.v * dt;
@@ -84,9 +127,18 @@ void LiveFollower::update(double t, const std::vector<Candidate>& cands) {
     if (k < 0) continue;  // a candidate that is not followed up is dropped
     advance(tr, t, cands[k]);
     used[k] = true;
-    if (tr.hits >= kConfirmHits && (!active_ || ball_.misses > 0) && headsForTarget(tr)) {
+    bool confirm = tr.hits >= kConfirmHits && (!active_ || ball_.misses > 0) && headsForTarget(tr);
+    if (confirm && checks_on_ && inPerson(tr.p, t)) {
+      // Inside a person: a second opinion first. A spot judged "not a ball" (a
+      // hand, a shoe) gets one more chance a few frames later (a blurred ball
+      // can fail once, e.g. at the release).
+      if (tr.check == 0 || (tr.check == 3 && tr.checks < 2 && tr.hits - tr.hits_at_check >= 6)) request(tr, t);
+      confirm = tr.check == 2;
+    }
+    if (confirm) {
       ball_ = tr;
       active_ = true;
+      recover_id_ = 0;
     } else {
       next.push_back(tr);
     }
@@ -95,6 +147,7 @@ void LiveFollower::update(double t, const std::vector<Candidate>& cands) {
   for (size_t i = 0; i < cands.size() && next.size() < 8; ++i) {
     if (used[i]) continue;
     Track tr;
+    tr.id = next_id_++;
     advance(tr, t, cands[i]);
     next.push_back(tr);
   }

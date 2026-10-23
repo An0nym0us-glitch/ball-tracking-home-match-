@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 #include <opencv2/imgproc.hpp>
 
 namespace pe {
@@ -11,6 +12,37 @@ using Clock = std::chrono::steady_clock;
 double msSince(Clock::time_point t0) {
   return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
 }
+
+#ifdef PE_WITH_AI
+// Part of a camera frame (roi in picture pixels, even coordinates) as BGR,
+// resized by `scale`, for the AI assist.
+cv::Mat yuvToBgr(const YuvFrame& f, const cv::Rect& roi, double scale) {
+  const cv::Size size(std::max(1, static_cast<int>(roi.width * scale)), std::max(1, static_cast<int>(roi.height * scale)));
+  cv::Mat y;
+  cv::resize(f.y(roi), y, size, 0, 0, scale < 1.0 ? cv::INTER_AREA : cv::INTER_LINEAR);
+  cv::Mat bgr;
+  if (f.uv.empty()) {
+    cv::cvtColor(y, bgr, cv::COLOR_GRAY2BGR);
+    return bgr;
+  }
+  const cv::Rect uv_roi(roi.x / 2, roi.y / 2, roi.width / 2, roi.height / 2);
+  cv::Mat uv;
+  cv::resize(f.uv(uv_roi & cv::Rect(0, 0, f.uv.cols, f.uv.rows)), uv, size, 0, 0, cv::INTER_LINEAR);
+  cv::Mat ch[2];
+  cv::split(uv, ch);
+  cv::Mat yuv;
+  cv::merge(std::vector<cv::Mat>{y, ch[0], ch[1]}, yuv);
+  cv::cvtColor(yuv, bgr, cv::COLOR_YUV2BGR);
+  return bgr;
+}
+
+// Where a picture point lies on the ground (z = 0), if the ray goes down.
+std::optional<Vec3> onGround(const Camera& cam, const Vec2& uv) {
+  const Vec3 c = cam.center(), d = cam.rayDirection(uv);
+  if (d.z() > -1e-6) return std::nullopt;
+  return c + (-c.z() / d.z()) * d;
+}
+#endif
 }  // namespace
 
 Engine::Engine(const EngineConfig& cfg)
@@ -19,6 +51,13 @@ Engine::Engine(const EngineConfig& cfg)
       tracker_(cfg.analysis.camera.width, cfg.tracker),
       follower_(cfg.analysis.camera.width,
                 cfg.analysis.camera.project(Vec3(0.0, cfg.analysis.pitch.length, 0.5 * cfg.analysis.pitch.stump_height))) {
+  if (cfg_.ai.enabled) {
+#ifdef PE_WITH_AI
+    ai_ = std::make_unique<AiAssist>(cfg_.ai);
+#else
+    stats_.ai_error = "this build has no AI assist";
+#endif
+  }
   if (cfg_.async_analysis) thread_ = std::thread(&Engine::worker, this);
 }
 
@@ -54,6 +93,7 @@ void Engine::pushFrame(const YuvFrame& frame, double t) {
     const auto t1 = Clock::now();
     tracker_.update(mid_frame, t_mid, last_candidates_);
     follower_.update(t_mid, last_candidates_);
+    if (ai_) aiStep(frame, t);
     stats_.track_ms += msSince(t1);
     queueFinished();
   }
@@ -84,8 +124,76 @@ std::vector<Vec2> Engine::corridorOutline() const {
   return out;
 }
 
+void Engine::aiStep(const YuvFrame& frame, double t) {
+#ifdef PE_WITH_AI
+  const AiStatus st = ai_->status();
+  follower_.enableChecks(st.ready);
+  if (!st.ready) return;
+  const int W = frame.y.cols, H = frame.y.rows;
+  if (ai_->wantsPeople(t)) ai_->submitPeople(t, yuvToBgr(frame, cv::Rect(0, 0, W & ~1, H & ~1), 0.5), 2.0);
+  // Ball checks: a crop around where the spot is now, about 4.5 ball widths
+  // across (the model finds a ball best when it is 6-24 px in a 104 px crop).
+  for (const LiveFollower::CheckRequest& rq : follower_.takeCheckRequests()) {
+    const int want = std::max(cfg_.ai.crop_px, static_cast<int>(9.0 * rq.radius_px));
+    const int c = std::min({want & ~1, W & ~1, H & ~1});
+    const Vec2 uv = rq.uv + rq.v * std::clamp(t - rq.t, 0.0, 0.2);
+    const int x0 = std::clamp(static_cast<int>(std::lround(uv.x() - c / 2.0)) & ~1, 0, (W - c) & ~1);
+    const int y0 = std::clamp(static_cast<int>(std::lround(uv.y() - c / 2.0)) & ~1, 0, (H - c) & ~1);
+    const cv::Rect roi(x0, y0, c, c);
+    ai_->submitCheck({rq.id, t, Vec2(x0 + c / 2.0, y0 + c / 2.0)}, yuvToBgr(frame, roi, 1.0));
+  }
+  for (const AiCheckResult& r : ai_->takeChecks()) {
+    follower_.applyCheck(r.id, r.t, r.score >= cfg_.ai.ball_score, r.uv);
+  }
+  // People: a moving spot inside one needs a ball check before it is followed.
+  // The bowler (feet in the near half of the pitch) and a batter (feet near
+  // the batter's stumps) are told apart by where they stand on the ground.
+  std::vector<AiBox> boxes;
+  double tp = 0;
+  if (ai_->people(boxes, tp) && tp > people_t_) {
+    people_t_ = tp;
+    const Camera& cam = cfg_.analysis.camera;
+    const double L = cfg_.analysis.pitch.length;
+    std::vector<Person> people;
+    std::vector<cv::Rect2f> areas;
+    bool batter = false;
+    for (const AiBox& b : boxes) {
+      Person p{b.box, '?'};
+      if (const auto g = onGround(cam, Vec2(b.box.x + b.box.width / 2, b.box.y + b.box.height))) {
+        if (g->y() > -6.0 && g->y() < 0.45 * L && std::abs(g->x()) < 4.0) p.role = 'b';
+        if (g->y() > L - 3.5 && g->y() < L + 1.5 && std::abs(g->x()) < 3.0) p.role = 'B';
+      }
+      // A little larger: the arm swings, the box lags behind.
+      const float mx = 0.15f * b.box.width, my = 0.1f * b.box.height;
+      areas.emplace_back(b.box.x - mx, b.box.y - my, b.box.width + 2 * mx, b.box.height + 2 * my);
+      batter |= p.role == 'B';
+      people.push_back(p);
+    }
+    follower_.setPeople(std::move(areas), tp + 0.6);
+    people_ = std::move(people);
+    batter_seen_.push_back({tp, batter});
+    while (!batter_seen_.empty() && batter_seen_.front().first < tp - 30.0) batter_seen_.pop_front();
+  }
+#else
+  (void)frame;
+  (void)t;
+#endif
+}
+
 Engine::Stats Engine::stats() const {
   Stats s = stats_;
+#ifdef PE_WITH_AI
+  if (ai_) {
+    const AiStatus st = ai_->status();
+    s.ai_device = st.ready ? st.device : "";
+    s.ai_note = st.note;
+    s.ai_error = st.error;
+    s.ai_person_ms = st.person_ms;
+    s.ai_check_ms = st.check_ms;
+    s.people = static_cast<int>(people_.size());
+    s.batter_seen = batter_seen_.empty() ? -1 : (batter_seen_.back().second ? 1 : 0);
+  }
+#endif
   std::lock_guard<std::mutex> lock(mu_);
   s.analyses_waiting = static_cast<int>(jobs_.size()) + running_;
   return s;
@@ -99,6 +207,17 @@ void Engine::queueFinished() {
     }
     // The track closes some frames after the ball was last seen.
     job.close_frame = frame_index_ - 2;
+    job.batter_present = cfg_.analysis.batter_present;
+    if (cfg_.batter_auto && job.batter_present) {
+      // A batter seen at the stumps around this delivery? No AI answer: keep the setting.
+      bool any = false, seen = false;
+      for (const auto& [ts, b] : batter_seen_) {
+        if (ts < track.front().t - 1.0 || ts > track.back().t + 0.3) continue;
+        any = true;
+        seen |= b;
+      }
+      if (any) job.batter_present = seen;
+    }
     job.track = std::move(track);
     if (!thread_.joinable()) {
       collect(runJob(job));
@@ -146,7 +265,9 @@ DeliveryResult Engine::runJob(const Job& job) const {
     r.t_last = track.back().t;
     r.reject_reason = "not analysed";
   } else {
-    r = analyzeTrack(track, cfg_.analysis);
+    AnalysisConfig a = cfg_.analysis;
+    a.batter_present = job.batter_present;
+    r = analyzeTrack(track, a);
   }
   r.timings_ms.insert(r.timings_ms.begin(), {"detect_frames_sum", job.detect_ms});
   r.timings_ms.push_back({"analysis_wall", msSince(t0)});

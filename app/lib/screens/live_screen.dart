@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../engine/ai.dart';
 import '../engine/workers.dart';
 import '../model/delivery.dart';
 import '../model/session.dart';
@@ -113,6 +114,57 @@ class _LiveScreenState extends State<LiveScreen> {
     }
   }
 
+  /// New settings take effect for the next ball (the engine restarts).
+  void _settingsChanged() {
+    s.save();
+    _maybeStartEngine();
+  }
+
+  /// AI assist: on/off, which processor, and what it is doing.
+  Widget _aiControls(TextTheme t) {
+    final ai = _stats['ai'] as Map<String, dynamic>?;
+    final device = ai?['device'] as String? ?? '';
+    final note = ai?['note'] as String? ?? '';
+    final error = ai?['error'] as String? ?? '';
+    final seen = ai?['batter_seen'] as num?;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 12, children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Switch(
+            value: s.aiEnabled,
+            onChanged: (v) {
+              setState(() => s.aiEnabled = v);
+              _settingsChanged();
+            },
+          ),
+          const Text('AI assist (YOLO)'),
+        ]),
+        if (s.aiEnabled)
+          DropdownButton<String>(
+            value: s.aiDevice,
+            items: [for (final e in aiDevices.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
+            onChanged: (v) {
+              if (v == null) return;
+              setState(() => s.aiDevice = v);
+              _settingsChanged();
+            },
+          ),
+      ]),
+      if (s.aiEnabled)
+        Text(
+          error.isNotEmpty
+              ? error
+              : device.isEmpty
+                  ? 'AI assist starting...'
+                  : 'AI on $device: people ${(ai?['person_ms'] as num? ?? 0).toStringAsFixed(0)} ms, '
+                      'ball check ${(ai?['check_ms'] as num? ?? 0).toStringAsFixed(0)} ms'
+                      '${seen == null || seen < 0 ? '' : seen > 0 ? '  |  batter seen' : '  |  no batter seen'}'
+                      '${note.isNotEmpty ? '\n$note' : ''}',
+          style: t.bodySmall!.copyWith(color: error.isNotEmpty ? Colors.red.shade700 : null),
+        ),
+    ]);
+  }
+
   void _toggleDebug(bool on) {
     _server?.showDebug(on);
     setState(() {
@@ -180,20 +232,26 @@ class _LiveScreenState extends State<LiveScreen> {
             ),
           if (ready)
             BatterSwitch(
-              value: s.batter,
+              value: s.aiActive && s.batterAuto ? 'auto' : s.batter,
+              autoAvailable: s.aiActive,
               onChanged: (v) {
-                setState(() => s.batter = v);
-                s.save();
-                _maybeStartEngine(); // new settings for the next ball
+                setState(() {
+                  s.batterAuto = v == 'auto';
+                  if (v != 'auto') s.batter = v;
+                  if (v == 'auto' && s.batter == 'none') s.batter = 'right';
+                });
+                _settingsChanged();
               },
             ),
+          if (ready && aiModelPath() != null) _aiControls(t),
           if (ready)
             SwitchListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: const Text('Show what the engine sees'),
               subtitle: const Text('Red box: the ball being followed. Green: area watched for the ball. '
-                  'Yellow: possible balls in the last second (a thrown ball leaves a line of them).'),
+                  'Yellow: possible balls in the last second (a thrown ball leaves a line of them). '
+                  'With the AI: orange box the bowler, blue box the batter, grey other people.'),
               value: _debugView,
               onChanged: _toggleDebug,
             ),

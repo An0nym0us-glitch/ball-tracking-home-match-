@@ -90,6 +90,10 @@ void main() {
     expect(ballShown, isTrue, reason: 'box on the ball in the live picture');
     expect(find.byType(ResultCard), findsOneWidget);
     expect(find.textContaining('Tracking is OFF'), findsNothing);
+    if (Platform.environment['POCKETEYE_AI_MODEL'] != null) {
+      // The AI assist runs (this machine has no GPU: the CPU, with a note).
+      expect(find.textContaining('AI on '), findsOneWidget);
+    }
     await tester.runAsync(() => sock.close());
     // Close the screen: it stops its server.
     await tester.pumpWidget(const SizedBox());

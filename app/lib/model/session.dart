@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../engine/ai.dart';
+
 /// Stump tap points, in the order the calibration screen asks for them.
 /// Left/right are as seen in the picture.
 class TapSpec {
@@ -40,6 +42,13 @@ class Session {
   /// Definite verdicts at 80 % certainty instead of 90 %: fewer umpire's calls,
   /// a few more wrong calls (docs/accuracy.md).
   bool boldDecisions = false;
+  /// AI assist (laptop): YOLO finds people (bowler, batter) and checks spots
+  /// near them for a ball; aiDevice: 'dgpu', 'igpu' or 'cpu'.
+  bool aiEnabled = true;
+  String aiDevice = 'dgpu';
+  /// With the AI assist: LBW only when a batter is seen at the stumps, else
+  /// practice (the batter's hand is [batter]).
+  bool batterAuto = false;
   double? cameraHeight; // only needed if the bowler's stumps are out of frame
   double? cameraDistance;
   double hfovDeg = 65; // phone field of view (hint)
@@ -74,7 +83,12 @@ class Session {
         'ball': ball,
         'batter': batter,
         if (boldDecisions) 'decision_probability': 0.8,
+        if (aiActive) 'ai': {'model': aiModelPath(), 'device': aiDevice},
+        if (aiActive && batterAuto && batter != 'none') 'batter_auto': true,
       });
+
+  /// The AI assist is on and its model is installed (laptop app).
+  bool get aiActive => aiEnabled && aiModelPath() != null;
 
   Map<String, dynamic> toJson() => {
         'pitchLength': pitchLength,
@@ -85,6 +99,9 @@ class Session {
         'ball': ball,
         'batter': batter,
         'boldDecisions': boldDecisions,
+        'aiEnabled': aiEnabled,
+        'aiDevice': aiDevice,
+        'batterAuto': batterAuto,
         'cameraHeight': cameraHeight,
         'cameraDistance': cameraDistance,
         'hfovDeg': hfovDeg,
@@ -107,6 +124,9 @@ class Session {
     s.ball = (j['ball'] as String?) ?? s.ball;
     s.batter = (j['batter'] as String?) ?? s.batter;
     s.boldDecisions = (j['boldDecisions'] as bool?) ?? false;
+    s.aiEnabled = (j['aiEnabled'] as bool?) ?? true;
+    s.aiDevice = (j['aiDevice'] as String?) ?? s.aiDevice;
+    s.batterAuto = (j['batterAuto'] as bool?) ?? false;
     s.cameraHeight = (j['cameraHeight'] as num?)?.toDouble();
     s.cameraDistance = (j['cameraDistance'] as num?)?.toDouble();
     s.hfovDeg = d('hfovDeg', s.hfovDeg);

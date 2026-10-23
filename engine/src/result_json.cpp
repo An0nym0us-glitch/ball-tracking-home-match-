@@ -83,7 +83,7 @@ json deliveryToJson(const DeliveryResult& r, const AnalysisConfig& cfg, bool inc
     };
     j["sign_convention"] = "lateral values: + = batter's off side, - = leg side (" +
                            std::string(cfg.batter == Hand::Right ? "right" : "left") + "-handed batter)";
-    j["batter_present"] = cfg.batter_present;
+    j["batter_present"] = r.batter_present;
     j["impact_point_m"] = vec(r.impact_point);
     j["t_bounce"] = std::isfinite(r.t_bounce) ? json(r.t_bounce) : json(nullptr);
     j["t_impact"] = std::isfinite(r.t_impact) ? json(r.t_impact) : json(nullptr);

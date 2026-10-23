@@ -12,6 +12,9 @@ on:
 env:
   FLUTTER_VERSION: "3.47.7"
   OPENCV_VERSION: "4.10.0"
+  # YOLO assist model (YOLOX-Nano, COCO, Apache-2.0), 3.6 MB.
+  AI_MODEL_URL: "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx"
+  AI_MODEL_SHA256: "c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d"
 
 jobs:
   windows:
@@ -54,11 +57,23 @@ jobs:
           POCKETEYE_NATIVE_DIR: ${{ github.workspace }}\native
         run: flutter build windows --release
 
+      - name: Get the AI model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force models | Out-Null
+          curl.exe -sSL -o models/yolox_nano.onnx $env:AI_MODEL_URL
+          $h = (Get-FileHash models/yolox_nano.onnx -Algorithm SHA256).Hash.ToLower()
+          if ($h -ne $env:AI_MODEL_SHA256) { throw "AI model checksum mismatch: $h" }
+          # Apache-2.0: the licence goes with the model.
+          curl.exe -sSL -o models/YOLOX-LICENSE.txt https://raw.githubusercontent.com/Megvii-BaseDetection/YOLOX/main/LICENSE
+
       - name: Package
         shell: pwsh
         run: |
           $rel = "app/build/windows/x64/runner/Release"
           Rename-Item "$rel/pocketeye.exe" "PocketEye.exe"
+          Copy-Item -Recurse models "$rel/models"
+          Copy-Item -Recurse models cli/models
           Get-ChildItem $rel
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path "$rel/*" -DestinationPath dist/PocketEye-windows.zip
@@ -69,6 +84,10 @@ jobs:
         run: |
           ./cli/pocketeye-cli.exe version
           ./cli/pocketeye-cli.exe benchmark --frames 60
+          # The AI model runs (this machine has no GPU: the CPU is used instead).
+          curl.exe -sSL -o messi5.jpg https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/messi5.jpg
+          ./cli/pocketeye-cli.exe ai-test --model cli/models/yolox_nano.onnx --image messi5.jpg --device dgpu
+          if ($LASTEXITCODE -ne 0) { throw "AI model did not load" }
 
       - uses: actions/upload-artifact@v4
         with:

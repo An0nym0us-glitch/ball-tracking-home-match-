@@ -108,6 +108,19 @@ LoadedConfig loadConfig(const json& j) {
     throw std::runtime_error("source must be camera or jpeg_stream");
   }
   if (source == "jpeg_stream") out.engine.detector = forJpegStream(out.engine.detector);
+  // YOLO assist: {"model": "yolox_tiny.onnx", "device": "dgpu" | "igpu" | "cpu"}.
+  if (j.contains("ai") && j["ai"].is_object() && !j["ai"].value("model", "").empty()) {
+    AiConfig& ai = out.engine.ai;
+    ai.enabled = true;
+    ai.model = j["ai"]["model"].get<std::string>();
+    ai.device = j["ai"].value("device", ai.device);
+    if (ai.device != "dgpu" && ai.device != "igpu" && ai.device != "cpu") {
+      throw std::runtime_error("ai.device must be dgpu, igpu or cpu");
+    }
+    ai.ball_score = j["ai"].value("ball_score", ai.ball_score);
+    ai.person_hz = j["ai"].value("person_hz", ai.person_hz);
+  }
+  out.engine.batter_auto = j.value("batter_auto", false);
 
   CalibrationInput in = calibrationInputFromJson(j, false);
   a.pitch = in.pitch;

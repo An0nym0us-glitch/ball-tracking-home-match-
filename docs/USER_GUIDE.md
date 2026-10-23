@@ -98,6 +98,21 @@ bowler's arm swinging up and round is mostly ignored (it can still sit on the ha
 last second) and check the light and the calibration. Under the picture, "Balls found" and "other movement ignored
 (last: ...)" say what the engine made of each movement.
 
+**AI assist (YOLO, laptop only).** Switched on by default when the laptop app has its model (`models/yolox_nano.onnx`,
+included in the zip). Choose where it runs: **Dedicated GPU** (fastest on laptops with a separate graphics card),
+**Integrated GPU** or **CPU**. The line under the switch says what it really runs on (if there is no such GPU, or its
+driver has no OpenCL, it says so and uses the CPU) and how long it takes. What it does:
+- finds the people in the picture (orange box: bowler, blue: batter in "Show what the engine sees");
+- a moving spot inside a person (the bowler's hand, a shoe) gets the red box only after the AI judged a crop around
+  it to be a ball;
+- when the red box loses the ball (near the stumps it hardly moves in the picture), the AI looks for it where it
+  should be;
+- **Batter: Auto (AI)**: each ball is judged with LBW rules only if a batter was seen standing at the stumps,
+  otherwise as practice (BOWLED / would hit the stumps).
+
+The AI cannot find a cricket ball in the whole picture (far away it is only 4–10 pixels); it only judges small
+crops. It does not change how deliveries are measured. It has been tested on photos, not yet on real cricket video.
+
 After calibrating, the laptop tells the phone to fix its brightness and focus on the batter's stumps (otherwise the
 picture changes every time the bowler runs past the camera, which hides the ball). The phone shows "Brightness and
 focus locked on the stumps". If the light changes a lot, calibrate again.

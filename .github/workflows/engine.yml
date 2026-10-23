@@ -24,7 +24,17 @@ jobs:
           cmake -S engine -B engine/build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build engine/build
 
-      - name: Unit tests (engine math)
+      - name: Get the AI model and a test picture
+        run: |
+          mkdir -p out/ai
+          curl -sSL -o out/ai/yolox_nano.onnx https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx
+          echo "c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d  out/ai/yolox_nano.onnx" | sha256sum -c
+          curl -sSL -o out/ai/messi5.jpg https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/messi5.jpg
+
+      - name: Unit tests (engine math, AI assist)
+        env:
+          PE_AI_MODEL: ${{ github.workspace }}/out/ai/yolox_nano.onnx
+          PE_AI_IMAGE: ${{ github.workspace }}/out/ai/messi5.jpg
         run: ./engine/build/pocketeye-tests
 
       - name: Synthetic accuracy gate (random deliveries, 720p30)
@@ -68,6 +78,7 @@ jobs:
         env:
           POCKETEYE_LIB: ${{ github.workspace }}/engine/build/libpocketeye_c.so
           POCKETEYE_SCENE: ${{ github.workspace }}/out/eval_random/scene_0000
+          POCKETEYE_AI_MODEL: ${{ github.workspace }}/out/ai/yolox_nano.onnx
         run: |
           flutter pub get
           flutter test

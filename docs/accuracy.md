@@ -241,6 +241,29 @@ the bounce had been taken for a slow delivery starting mid-pitch). Same scenes, 
 52 → 56/60 found, 1080p60 29 → 29/30, plumb 17 → 19/20; no new false deliveries or wrong LBW calls. On the CI
 scenes: 20 → 22/24.
 
+## AI assist (YOLO)
+
+YOLOX-Nano (COCO, Apache-2.0, 3.6 MB) through OpenCV's dnn module, on the CPU or a GPU (OpenCL). The synthetic
+scenes cannot test it (their drawn people and ball are not recognised: on synthetic video it finds nothing, and the
+results are the same with and without it), so it was measured on a real photo (OpenCV's `messi5.jpg`, a football
+49 px across) shrunk until the ball has the size a cricket ball has here:
+
+| Ball size | Whole 1280x720 picture | 104 px crop around it, enlarged 4x (YOLOX-Nano / YOLOX-Tiny) |
+|---|---|---|
+| 32 px | 0.03 | 0.21 / 0.89 |
+| 24 px | 0.00 | 0.77 / 0.93 |
+| 16 px | 0.00 | 0.84 / 0.70 |
+| 12 px | 0.00 | 0.41-0.60 / 0.33-0.50 |
+| 10 px | 0.00 | 0.78-0.80 / 0.10-0.11 |
+| 8 px | 0.00 | 0.69-0.82 / 0.06-0.18 |
+| 6 px | 0.00 | 0.55-0.70 / 0.22-0.29 |
+
+(best "sports ball" score; a ball counts from 0.3; the ranges are two crop positions.) A whole picture never works;
+a crop does, Nano best for small balls (the engine makes the crop about 4.5 ball widths so the ball stays in that
+range). Position from the crop: within 1 px. Time per crop on one CPU core of the build machine: about 45 ms (Nano).
+It is therefore used only as a second opinion (spots inside a person, a lost ball) and for people (batter seen or
+not), never as the ball detector. Its benefit on real cricket video still has to be measured.
+
 ## Automatic stump calibration
 
 The calibration picture of each scene (the empty pitch, `calib.jpg`) goes through `pocketeye-cli autocal`.

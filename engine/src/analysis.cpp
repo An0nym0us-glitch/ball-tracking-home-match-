@@ -324,6 +324,7 @@ DeliveryResult analyzeTrack(const std::vector<TrackPoint>& track, const Analysis
 DeliveryResult analyzeObservations(const std::vector<Observation>& obs_in, const AnalysisConfig& cfg) {
   const auto t_start = Clock::now();
   DeliveryResult res;
+  res.batter_present = cfg.batter_present;
   res.observations = obs_in;
   res.labels.assign(obs_in.size(), kOutlier);
   if (obs_in.size() < 6) {

@@ -34,6 +34,21 @@ class EngineOverlayPainter extends CustomPainter {
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1.5);
       }
+      for (final p in d['people'] as List? ?? const []) {
+        final m = p as Map;
+        final b = m['box'] as List;
+        final role = m['role'] as String? ?? 'other';
+        canvas.drawRect(
+            Rect.fromLTWH((b[0] as num) * sx, (b[1] as num) * sy, (b[2] as num) * sx, (b[3] as num) * sy),
+            Paint()
+              ..color = role == 'bowler'
+                  ? Colors.orange
+                  : role == 'batter'
+                      ? Colors.lightBlueAccent
+                      : Colors.grey
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2);
+      }
       final now = (d['t'] as num?)?.toDouble() ?? 0;
       for (final c in d['candidates'] as List? ?? const []) {
         final v = c as List;

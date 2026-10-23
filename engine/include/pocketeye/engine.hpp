@@ -9,6 +9,7 @@
 #include <opencv2/core.hpp>
 #include <vector>
 
+#include "pocketeye/ai.hpp"
 #include "pocketeye/analysis.hpp"
 #include "pocketeye/detector.hpp"
 #include "pocketeye/live.hpp"
@@ -27,6 +28,11 @@ struct EngineConfig {
   // Analyse finished tracks on a background thread so that frame processing
   // never stalls (an analysis takes ~0.5-3 s on a phone). Same results either way.
   bool async_analysis = true;
+  // YOLO assist (laptop): people, ball check on crops (built with PE_WITH_AI).
+  AiConfig ai;
+  // With AI: analyse a delivery with a batter (LBW) only if one was seen standing
+  // at the batter's stumps during it; otherwise as practice (no batter).
+  bool batter_auto = false;
 };
 
 // Frames in, deliveries out. Every delivery is detected automatically: no
@@ -62,6 +68,11 @@ class Engine {
     int rejected = 0;            // tracks analysed that were not deliveries
     std::string last_reject;     // why the latest one was rejected
     int analyses_waiting = 0;    // queued or running on the background thread
+    // AI assist (empty device = off).
+    std::string ai_device, ai_note, ai_error;
+    double ai_person_ms = 0.0, ai_check_ms = 0.0;
+    int people = 0;
+    int batter_seen = -1;  // last people detection: 1 a batter at the stumps, 0 none, -1 unknown
   };
   // Snapshot (the background thread updates some fields).
   Stats stats() const;
@@ -72,12 +83,20 @@ class Engine {
   std::vector<Vec2> corridorOutline() const;
   // The ball being followed right now, for drawing on the live picture.
   LiveBall liveBall() const { return follower_.state(t_now_); }
+  // People found by the AI assist (picture pixels) and their role: 'b' bowler,
+  // 'B' batter, '?' other.
+  struct Person {
+    cv::Rect2f box;
+    char role = '?';
+  };
+  std::vector<Person> people() const { return people_; }
 
  private:
   struct Job {
     std::vector<TrackPoint> track;
     double detect_ms = 0;
     int close_frame = 0;
+    bool batter_present = true;
   };
   void queueFinished();
   DeliveryResult runJob(const Job& job) const;
@@ -85,11 +104,16 @@ class Engine {
   void collectDone();
   void worker();
   void emitPending(double t_now, bool all);
+  void aiStep(const YuvFrame& frame, double t);
 
   EngineConfig cfg_;
   Detector detector_;
   Tracker tracker_;
   LiveFollower follower_;
+  std::unique_ptr<AiAssist> ai_;
+  std::vector<Person> people_;
+  double people_t_ = -1.0;
+  std::deque<std::pair<double, bool>> batter_seen_;  // (time, a batter at the stumps)
   int frame_index_ = 0;  // index of the next frame pushed
   std::vector<Candidate> last_candidates_;
   YuvFrame converted_;

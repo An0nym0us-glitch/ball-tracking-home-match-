@@ -345,7 +345,7 @@ int32_t pe_stats_json(pe_engine* e, char* buf, int32_t buf_len) {
   if (!e) return 0;
   const auto& st = e->engine->stats();
   const double n = std::max(1, st.frames);
-  const json j = {{"frames", st.frames},
+  json j = {{"frames", st.frames},
                   {"detect_ms_per_frame", st.detect_ms / n},
                   {"track_ms_per_frame", st.track_ms / n},
                   {"analyze_ms_total", st.analyze_ms},
@@ -354,6 +354,15 @@ int32_t pe_stats_json(pe_engine* e, char* buf, int32_t buf_len) {
                   {"rejected", st.rejected},
                   {"last_reject", st.last_reject},
                   {"analyses_waiting", st.analyses_waiting}};
+  if (e->config.engine.ai.enabled) {
+    j["ai"] = {{"device", st.ai_device},
+               {"note", st.ai_note},
+               {"error", st.ai_error},
+               {"person_ms", std::round(st.ai_person_ms * 10) / 10},
+               {"check_ms", std::round(st.ai_check_ms * 10) / 10},
+               {"people", st.people},
+               {"batter_seen", st.batter_seen}};
+  }
   return copyOut(j.dump(), buf, buf_len);
 }
 
@@ -388,8 +397,14 @@ int32_t pe_debug_json(pe_engine* e, char* buf, int32_t buf_len) {
       cands.push_back({s.t, std::round(s.c.uv.x() * 10) / 10, std::round(s.c.uv.y() * 10) / 10,
                        std::round(s.c.radius_px * 10) / 10, std::round(s.c.strength)});
     }
+    json people = json::array();
+    for (const auto& p : e->engine->people()) {
+      people.push_back({{"box", {std::round(p.box.x), std::round(p.box.y), std::round(p.box.width),
+                                 std::round(p.box.height)}},
+                        {"role", p.role == 'b' ? "bowler" : (p.role == 'B' ? "batter" : "other")}});
+    }
     const json j = {{"width", cam.width}, {"height", cam.height}, {"t", e->t_last}, {"corridor", corridor},
-                    {"candidates", cands}};
+                    {"candidates", cands}, {"people", people}};
     return copyOut(j.dump(), buf, buf_len);
   } catch (...) {
     return 0;

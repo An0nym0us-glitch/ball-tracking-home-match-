@@ -53,6 +53,7 @@ enum ObsLabel { kPreBounce = 0, kPostBounce = 1, kAfterImpact = 2, kOutlier = -1
 
 struct DeliveryResult {
   bool valid = false;
+  bool batter_present = true;  // analysed with a batter (LBW) or without (practice)
   std::string reject_reason;
   int frame_first = 0;
   int frame_last = 0;
