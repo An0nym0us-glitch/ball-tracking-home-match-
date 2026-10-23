@@ -12,12 +12,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A slow package mirror has hung this step for 20+ minutes: give up after
+      # 8 minutes per attempt and try again (three attempts).
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build g++ libopencv-dev libeigen3-dev libgtest-dev \
-            nlohmann-json3-dev ffmpeg python3-numpy python3-opencv
+          for attempt in 1 2 3; do
+            if timeout 480 bash -c 'sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update &&
+                sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
+                  cmake ninja-build g++ libopencv-dev libeigen3-dev libgtest-dev \
+                  nlohmann-json3-dev ffmpeg python3-numpy python3-opencv'; then
+              exit 0
+            fi
+            echo "attempt $attempt failed or timed out"
+          done
+          exit 1
 
       - name: Build
         run: |
